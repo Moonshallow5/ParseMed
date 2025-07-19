@@ -1,28 +1,27 @@
 import { useState } from "react";
-import { Document, Page, pdfjs } from "react-pdf";
 import MainLayout from '../components/MainLayout';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Box from '@mui/material/Box';
 import TextField from '@mui/material/TextField';
 
-
-pdfjs.GlobalWorkerOptions.workerSrc = '/node_modules/pdfjs-dist/build/pdf.worker.mjs';
 function DocumentUpload() {
   const [file, setFile] = useState(null);
-  const [numPages, setNumPages] = useState(null);
+  const [fileUrl, setFileUrl] = useState(null);
   const [notes, setNotes] = useState("");
 
   const onFileChange = (event) => {
-    setFile(event.target.files[0]);
+    const selectedFile = event.target.files[0];
+    if (selectedFile) {
+      setFile(selectedFile);
+      // Create a URL for the file to display in iframe
+      const url = URL.createObjectURL(selectedFile);
+      setFileUrl(url);
+    }
   };
 
   const handleLogout = () => {
     alert('Logged out!');
-  };
-
-  const onDocumentLoadSuccess = ({ numPages }) => {
-    setNumPages(numPages);
   };
 
   return (
@@ -35,22 +34,16 @@ function DocumentUpload() {
           onChange={onFileChange}
           style={{ marginBottom: 16 }}
         />
-        {file && (
+        {file && fileUrl && (
           <Card sx={{ display: 'flex', gap: 3, marginTop: 2, maxHeight: 600, minWidth: 650, overflow: 'auto' }}>
             <CardContent sx={{ flex: 2, overflow: 'auto', minWidth: 400 }}>
-              <Document
-                file={file}
-                onLoadSuccess={onDocumentLoadSuccess}
-                loading="Loading PDF..."
-              >
-                {Array.from(new Array(numPages), (el, index) => (
-                  <Page
-                    key={`page_${index + 1}`}
-                    pageNumber={index + 1}
-                    width={400}
-                  />
-                ))}
-              </Document>
+              <iframe
+                src={fileUrl}
+                width="100%"
+                height="500"
+                style={{ border: 'none' }}
+                title="PDF Viewer"
+              />
             </CardContent>
             <CardContent sx={{ flex: 1, minWidth: 250, display: 'flex', flexDirection: 'column' }}>
               <h3>Notes</h3>
