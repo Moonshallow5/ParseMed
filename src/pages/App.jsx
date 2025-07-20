@@ -24,7 +24,7 @@ function App() {
 
   const rows = [
     createData('Neurosurgery Document', '030907_neuro.pdf', 159),
-    createData('gynecomastia document', '023123_gynapdf',237),
+    createData('gynecomastia document', '023123_gyna.pdf',237),
 
   ]
 
