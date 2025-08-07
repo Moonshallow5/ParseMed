@@ -26,7 +26,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-openai.api_key = os.getenv("OPENAI_API_KEY", "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")
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 
 @app.post("/markdown-to-json")
