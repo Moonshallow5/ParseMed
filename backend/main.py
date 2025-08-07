@@ -19,8 +19,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",  # React dev server
-        "https://your-frontend-domain.vercel.app",  # Production frontend
-        "https://your-frontend-domain.onrender.com"  # If using Render for frontend
+        "https://parse-med-moonshallow5s-projects.vercel.app/",  # Production frontend
     ],
     allow_methods=["*"],
     allow_headers=["*"],

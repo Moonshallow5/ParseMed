@@ -131,7 +131,7 @@ function DocumentUploadMarkdown() {
       // Extract only the table sections from the markdown
       const extractedTables = extractTableSections(markdown);
       
-      const response = await fetch('http://localhost:8000/markdown-to-json', {
+      const response = await fetch('https://parsemed-backend.onrender.com/markdown-to-json', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ markdown: extractedTables }),
