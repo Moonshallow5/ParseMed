@@ -14,6 +14,8 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import LogoutIcon from '@mui/icons-material/Logout';
 import GroupIcon from '@mui/icons-material/Group';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import SettingsIcon from '@mui/icons-material/Settings';
 
 const drawerWidth = 290;
 
@@ -75,6 +77,8 @@ const navigationItems = [
   { title: "Extraction Summary", route: "/summary", icon: <GroupIcon /> },
   // { title: "Document Upload", route: "/upload", icon: <UploadFileIcon /> },
   { title: "Document Upload Markdown", route: "/upload-markdown", icon: <UploadFileIcon /> },
+  { title: "Create Configs", route: "/configuration", icon: <SettingsIcon /> },
+  { title: "View Configs", route: "/view-configs", icon: <VisibilityIcon /> },
 ];
 
 export default function AppNavigation({ onLogout, variant = "permanent", open = true, onClose, onToggleOpen }) {
@@ -94,7 +98,6 @@ export default function AppNavigation({ onLogout, variant = "permanent", open = 
               <ChevronLeftIcon sx={{ transform: open ? 'none' : 'rotate(180deg)', transition: 'transform 0.2s' }} />
             </IconButton>
           </DrawerHeader>
-          <Divider sx={{ background: "rgba(255,255,255,0.2)" }} />
           <List>
             {navigationItems.map((item, idx) => {
               const isSelected = location.pathname === item.route;

@@ -77,9 +77,9 @@ export default function MainLayout({ children, ...navProps }) {
         onClose={handleDrawerToggle}
         onToggleOpen={handleDrawerToggle}
       />
-      <div style={{ flex: 1 }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         <AppBar
-          position="fixed"
+          position="absolute"
           sx={{
             ...StyledAppBar({ theme, open: drawerOpen, isSmallScreen }),
             backgroundColor: '#f7f5f1',
@@ -88,7 +88,8 @@ export default function MainLayout({ children, ...navProps }) {
           }}
         >
           <Toolbar>
-            {isSmallScreen && (
+            {/* Show toggle button only when drawer is closed on small screens */}
+            {isSmallScreen && !drawerOpen && (
               <IconButton
                 color="inherit"
                 aria-label="open drawer"
@@ -104,7 +105,20 @@ export default function MainLayout({ children, ...navProps }) {
             </Typography>
           </Toolbar>
         </AppBar>
-        <main style={{ padding: 24, marginTop: 64 }}>
+        
+        <main
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'flex-start',
+            minHeight: '100vh',
+            padding: '24px',
+            boxSizing: 'border-box',
+            width: '100%',
+            textAlign: 'center'
+          }}
+        >
           {children}
         </main>
       </div>
