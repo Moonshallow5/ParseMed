@@ -24,6 +24,7 @@ import { CSS } from '@dnd-kit/utilities';
 import SaveIcon from '@mui/icons-material/Save';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
+import { API_BASE_URL } from '../config';
 
 function stringifyCell(v) {
   return v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
@@ -260,7 +261,7 @@ export default function SideBySide() {
         pdf_key: s3PdfKey || null,
         extracted_json: extractedData,
       };
-      const res = await fetch('http://localhost:8000/finalize-extracted-details', {
+      const res = await fetch(`${API_BASE_URL}/finalize-extracted-details`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

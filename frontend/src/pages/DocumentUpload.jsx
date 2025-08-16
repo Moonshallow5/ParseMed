@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { API_BASE_URL } from '../config';
 import MainLayout from '../components/MainLayout';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
@@ -35,7 +36,7 @@ function DocumentUpload() {
       try {
         const formData = new FormData();
         formData.append('file', selectedFile);
-        const response = await fetch('http://localhost:8000/extract-tables', {
+        const response = await fetch(`${API_BASE_URL}/extract-tables`, {
           method: 'POST',
           body: formData,
         });
@@ -73,7 +74,7 @@ function DocumentUpload() {
     setAiError(null);
     setAiOutput(null);
     try {
-      const response = await fetch('http://localhost:8000/analyze-tables', {
+      const response = await fetch(`${API_BASE_URL}/analyze-tables`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tables: rawTables }),

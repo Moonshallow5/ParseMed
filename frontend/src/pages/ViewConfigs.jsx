@@ -15,6 +15,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import { useNavigate } from 'react-router-dom';
+import { API_BASE_URL } from '../config';
 
 function ViewConfigs() {
   const [configs, setConfigs] = useState([]);
@@ -26,7 +27,7 @@ function ViewConfigs() {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch('http://localhost:8000/get-configurations');
+      const response = await fetch(`${API_BASE_URL}/get-configurations`);
       if (!response.ok) {
         throw new Error('Failed to fetch configurations');
       }

@@ -17,6 +17,7 @@ import AddIcon from '@mui/icons-material/Add';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Paper from '@mui/material/Paper';
+import { API_BASE_URL } from '../config';
 
 function Configuration() {
   const location = useLocation();
@@ -122,8 +123,8 @@ function Configuration() {
         template_json: templateJson
       };
       const url = isEditing
-        ? `http://localhost:8000/update-configuration/${location.state.config.id}`
-        : 'http://localhost:8000/save-configuration';
+        ? `${API_BASE_URL}/update-configuration/${location.state.config.id}`
+        : `${API_BASE_URL}/save-configuration`;
       const method = isEditing ? 'PUT' : 'POST';
       const response = await fetch(url, {
         method,

@@ -29,6 +29,7 @@ import MenuItem from '@mui/material/MenuItem';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { API_BASE_URL } from '../config';
 
 
 
@@ -74,7 +75,7 @@ const MenuProps = {
       try {
         setConfigsLoading(true);
         setConfigsError(null);
-        const response = await fetch('http://localhost:8000/get-configurations');
+        const response = await fetch(`${API_BASE_URL}/get-configurations`);
         if (!response.ok) {
           throw new Error('Failed to fetch configurations');
         }
@@ -145,7 +146,7 @@ const MenuProps = {
     
     try {
       // Send the full markdown and configuration template to OpenAI
-      const response = await fetch('http://localhost:8000/markdown-to-json', {
+      const response = await fetch(`${API_BASE_URL}/markdown-to-json`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -348,7 +349,7 @@ const MenuProps = {
         pdf_file: pdfBase64
       };
       
-      const response = await fetch('http://localhost:8000/save-tables', {
+      const response = await fetch(`${API_BASE_URL}/save-tables`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(dataToSave),

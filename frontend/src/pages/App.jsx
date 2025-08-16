@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { API_BASE_URL } from '../config'
 import MainLayout from '../components/MainLayout'
 import Table from '@mui/material/Table'
 import TableBody from '@mui/material/TableBody'
@@ -36,7 +37,7 @@ function App() {
     const fetchTables = async () => {
       try {
         setLoading(true)
-        const response = await fetch('http://localhost:8000/get-saved-tables')
+        const response = await fetch(`${API_BASE_URL}/get-saved-tables`)
         if (!response.ok) {
           throw new Error('Failed to fetch tables')
         }
