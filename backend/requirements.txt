@@ -1,5 +1,6 @@
 fastapi==0.116.1
 uvicorn==0.35.0
 openai==0.28.1
-# python-multipart==0.0.6
+boto3==1.40.6
+supabase==2.18.0
 # pydantic==2.5.0 

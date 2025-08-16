@@ -14,6 +14,8 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import LogoutIcon from '@mui/icons-material/Logout';
 import GroupIcon from '@mui/icons-material/Group';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import SettingsIcon from '@mui/icons-material/Settings';
 
 const drawerWidth = 290;
 
@@ -75,6 +77,8 @@ const navigationItems = [
   { title: "Extraction Summary", route: "/summary", icon: <GroupIcon /> },
   // { title: "Document Upload", route: "/upload", icon: <UploadFileIcon /> },
   { title: "Document Upload Markdown", route: "/upload-markdown", icon: <UploadFileIcon /> },
+  { title: "Create Configs", route: "/configuration", icon: <SettingsIcon /> },
+  { title: "View Configs", route: "/view-configs", icon: <VisibilityIcon /> },
 ];
 
 export default function AppNavigation({ onLogout, variant = "permanent", open = true, onClose, onToggleOpen }) {
@@ -82,7 +86,12 @@ export default function AppNavigation({ onLogout, variant = "permanent", open = 
   const location = useLocation();
 
   return (
-    <StyledDrawer variant={variant} anchor="left" open={open} onClose={onClose}>
+    <StyledDrawer
+      variant={variant}
+      anchor="left"
+      open={open}
+      ModalProps={{ keepMounted: true, disableEscapeKeyDown: true }}
+    >
       <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
         <div>
           <DrawerHeader>
@@ -94,7 +103,6 @@ export default function AppNavigation({ onLogout, variant = "permanent", open = 
               <ChevronLeftIcon sx={{ transform: open ? 'none' : 'rotate(180deg)', transition: 'transform 0.2s' }} />
             </IconButton>
           </DrawerHeader>
-          <Divider sx={{ background: "rgba(255,255,255,0.2)" }} />
           <List>
             {navigationItems.map((item, idx) => {
               const isSelected = location.pathname === item.route;
@@ -104,9 +112,6 @@ export default function AppNavigation({ onLogout, variant = "permanent", open = 
                     <ListItemButton
                       onClick={() => {
                         navigate(item.route);
-                        if (variant === 'temporary' && onClose) {
-                          onClose();
-                        }
                       }}
                       sx={{
                         backgroundColor: isSelected ? "#006e5c" : "transparent",
@@ -160,16 +165,13 @@ export default function AppNavigation({ onLogout, variant = "permanent", open = 
             })}
           </List>
         </div>
-        <div>
+        <div style={{ marginTop: 'auto' }}>
           <Divider sx={{ background: "rgba(255,255,255,0.2)" }} />
           <List>
             <ListItem disablePadding sx={{ display: 'block' }}>
               <ListItemButton
                 onClick={() => {
                   onLogout && onLogout();
-                  if (variant === 'temporary' && onClose) {
-                    onClose();
-                  }
                 }}
                 sx={{
                   color: "#ff5252",
