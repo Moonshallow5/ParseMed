@@ -86,7 +86,12 @@ export default function AppNavigation({ onLogout, variant = "permanent", open = 
   const location = useLocation();
 
   return (
-    <StyledDrawer variant={variant} anchor="left" open={open} onClose={onClose}>
+    <StyledDrawer
+      variant={variant}
+      anchor="left"
+      open={open}
+      ModalProps={{ keepMounted: true, disableEscapeKeyDown: true }}
+    >
       <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
         <div>
           <DrawerHeader>
@@ -107,9 +112,6 @@ export default function AppNavigation({ onLogout, variant = "permanent", open = 
                     <ListItemButton
                       onClick={() => {
                         navigate(item.route);
-                        if (variant === 'temporary' && onClose) {
-                          onClose();
-                        }
                       }}
                       sx={{
                         backgroundColor: isSelected ? "#006e5c" : "transparent",
@@ -163,16 +165,13 @@ export default function AppNavigation({ onLogout, variant = "permanent", open = 
             })}
           </List>
         </div>
-        <div>
+        <div style={{ marginTop: 'auto' }}>
           <Divider sx={{ background: "rgba(255,255,255,0.2)" }} />
           <List>
             <ListItem disablePadding sx={{ display: 'block' }}>
               <ListItemButton
                 onClick={() => {
                   onLogout && onLogout();
-                  if (variant === 'temporary' && onClose) {
-                    onClose();
-                  }
                 }}
                 sx={{
                   color: "#ff5252",

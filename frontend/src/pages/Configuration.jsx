@@ -31,6 +31,7 @@ function Configuration() {
   ]);
 
   const [loading, setLoading] = useState(false);
+  const isEditing = !!location.state?.config;
 
   // Prefill from navigation state (when coming from ViewConfigs)
   useEffect(() => {
@@ -116,15 +117,18 @@ function Configuration() {
       };
 
       // Send to backend API
-      const response = await fetch('http://localhost:8000/save-configuration', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: configName.trim(),
-          template_json: templateJson
-        }),
+      const payload = {
+        name: configName.trim(),
+        template_json: templateJson
+      };
+      const url = isEditing
+        ? `http://localhost:8000/update-configuration/${location.state.config.id}`
+        : 'http://localhost:8000/save-configuration';
+      const method = isEditing ? 'PUT' : 'POST';
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
@@ -135,16 +139,18 @@ function Configuration() {
       const result = await response.json();
       console.log('Configuration saved:', result);
       
-      alert('Configuration saved successfully!');
+      alert(isEditing ? 'Configuration updated successfully!' : 'Configuration saved successfully!');
       
       // Reset form
-      setConfigName('');
-      setAttributes([{
-        name: '',
-        query: '',
-        placeholder_name: 'Enter attribute name (e.g., Patient Age)',
-        placeholder: 'Enter query (e.g., What is the patient\'s age?)'
-      }]);
+      if (!isEditing) {
+        setConfigName('');
+        setAttributes([{
+          name: '',
+          query: '',
+          placeholder_name: 'Enter attribute name (e.g., Patient Age)',
+          placeholder: 'Enter query (e.g., What is the patient\'s age?)'
+        }]);
+      }
       
     } catch (error) {
       console.error('Error saving configuration:', error);
@@ -281,7 +287,7 @@ function Configuration() {
               }
             }}
           >
-            {loading ? 'Saving...' : 'Save'}
+            {loading ? (isEditing ? 'Updating...' : 'Saving...') : (isEditing ? 'Update' : 'Save')}
           </Button>
         </Box>
       </Box>

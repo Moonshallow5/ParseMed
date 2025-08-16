@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from 'react-router-dom';
 import MainLayout from '../components/MainLayout';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
@@ -19,22 +20,17 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import SaveIcon from '@mui/icons-material/Save';
 import CancelIcon from '@mui/icons-material/Cancel';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import pdf2md from '@opendocsg/pdf2md';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
-const ITEM_HEIGHT = 48;
-const ITEM_PADDING_TOP = 8;
-const MenuProps = {
-  PaperProps: {
-    style: {
-      maxHeight: ITEM_HEIGHT * 4.5 + ITEM_PADDING_TOP,
-      width: 250,
-    },
-  },
-};
+
 
 function DocumentUploadMarkdown() {
   const [configs, setConfigs] = useState([]);
@@ -51,6 +47,26 @@ function DocumentUploadMarkdown() {
   const [jsonError, setJsonError] = useState(null);
   const [editingCell, setEditingCell] = useState(null);
   const [editValue, setEditValue] = useState('');
+  const [attributesOrder, setAttributesOrder] = useState([]);
+  const [pdfPresignedUrl, setPdfPresignedUrl] = useState(null);
+  const [s3PdfKey, setS3PdfKey] = useState(null);
+  const navigate = useNavigate();
+
+  const ITEM_HEIGHT = 48;
+const ITEM_PADDING_TOP = 8;
+const MenuProps = {
+  PaperProps: {
+    style: {
+      maxHeight: ITEM_HEIGHT * 4.5 + ITEM_PADDING_TOP,
+      width: 250,
+    },
+  },
+};
+
+  // DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+  );
 
   // Fetch configurations on component mount
   useEffect(() => {
@@ -110,6 +126,8 @@ function DocumentUploadMarkdown() {
         // Convert PDF to Markdown
         const md = await pdf2md(arrayBuffer);
         setMarkdown(md);
+
+        
       } catch (err) {
         setExtractError(err.message);
       } finally {
@@ -150,6 +168,15 @@ function DocumentUploadMarkdown() {
     }
   };
 
+  // Keep a stable order of attribute cards
+  useEffect(() => {
+    if (extractedData && typeof extractedData === 'object' && !Array.isArray(extractedData)) {
+      setAttributesOrder(Object.keys(extractedData));
+    } else {
+      setAttributesOrder([]);
+    }
+  }, [extractedData]);
+
   // Helper function to get all unique keys from extracted data
   const getAllKeys = (data) => {
     if (!data || typeof data !== 'object') return [];
@@ -169,6 +196,32 @@ function DocumentUploadMarkdown() {
     }
     
     return Array.from(allKeys).sort();
+  };
+
+  // Normalize any value (string/object/array) into an array of column strings
+  const normalizeValueToColumns = (value) => {
+    if (value == null) return [""];
+    if (Array.isArray(value)) {
+      // Flatten one level to strings
+      return value.map((item) => {
+        if (item == null) return "";
+        if (typeof item === 'object') return JSON.stringify(item);
+        return String(item);
+      });
+    }
+    if (typeof value === 'object') {
+      // Turn object entries into "key: value"
+      try {
+        return Object.entries(value).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`);
+      } catch (_) {
+        return [JSON.stringify(value)];
+      }
+    }
+    // Primitive/string → split by ';'
+    return String(value)
+      .split(';')
+      .map((v) => v.trim())
+      .filter((v) => v.length > 0 || v === "");
   };
 
   // Helper function to normalize data for table display
@@ -307,17 +360,175 @@ function DocumentUploadMarkdown() {
       
       const result = await response.json();
       alert(`Data and PDF saved to S3 successfully!\nJSON: ${result.s3_keys.tables_json}\nPDF: ${result.s3_keys.pdf_file}`);
-      
+      setPdfPresignedUrl(result?.s3_urls?.pdf_file_url || null);
+      setS3PdfKey(result?.s3_keys?.pdf_file || null);
+ 
     } catch (err) {
       alert(`Error saving to S3: ${err.message}`);
     }
   };
 
+  // Per-attribute card helpers (matrix-based: rows x columns)
+  const stringifyCell = (v) => (v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
+
+  const deriveColumnsAndRows = (attributeKey) => {
+    const raw = extractedData?.[attributeKey];
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      const columns = Object.keys(raw);
+      const rows = [columns.map((k) => stringifyCell(raw[k]))];
+      return { columns, rows, type: 'object' };
+    }
+    if (Array.isArray(raw) && raw.length > 0 && typeof raw[0] === 'object') {
+      const columns = Object.keys(raw[0]);
+      const rows = raw.map((item) => columns.map((k) => stringifyCell(item?.[k])));
+      return { columns, rows, type: 'arrayOfObjects' };
+    }
+    if (Array.isArray(raw)) {
+      const columns = raw.map((_, idx) => `Value ${idx + 1}`);
+      const rows = [raw.map((v) => stringifyCell(v))];
+      return { columns, rows, type: 'array' };
+    }
+    const values = String(raw ?? '')
+      .split(';')
+      .map((v) => v.trim());
+    const columns = values.map((_, idx) => `Value ${idx + 1}`);
+    const rows = [values];
+    return { columns, rows, type: 'primitive' };
+  };
+
+  const writeBackAttribute = (attributeKey, columns, rows, type) => {
+    const updated = { ...extractedData };
+    if (type === 'object') {
+      const obj = {};
+      columns.forEach((k, idx) => {
+        obj[k] = rows[0]?.[idx] ?? '';
+      });
+      updated[attributeKey] = obj;
+    } else if (type === 'arrayOfObjects') {
+      const arr = rows.map((row) => {
+        const obj = {};
+        columns.forEach((k, idx) => {
+          obj[k] = row?.[idx] ?? '';
+        });
+        return obj;
+      });
+      updated[attributeKey] = arr;
+    } else if (type === 'array') {
+      updated[attributeKey] = rows[0] ?? [];
+    } else {
+      updated[attributeKey] = (rows[0] ?? []).join('; ');
+    }
+    setExtractedData(updated);
+  };
+
+  const handleCellChange = (attributeKey, rowIndex, colIndex, newValue) => {
+    const { columns, rows, type } = deriveColumnsAndRows(attributeKey);
+    const nextRows = rows.map((r) => [...r]);
+    // Ensure row exists
+    while (nextRows.length <= rowIndex) nextRows.push(Array.from({ length: columns.length }, () => ''));
+    // Ensure column exists across rows
+    if (colIndex >= columns.length) {
+      const numToAdd = colIndex - columns.length + 1;
+      for (let i = 0; i < numToAdd; i++) {
+        columns.push(`Value ${columns.length + 1}`);
+        for (let r = 0; r < nextRows.length; r++) nextRows[r].push('');
+      }
+    }
+    nextRows[rowIndex][colIndex] = newValue;
+    writeBackAttribute(attributeKey, columns, nextRows, type);
+  };
+
+  const handleAddColumn = (attributeKey) => {
+    const { columns, rows, type } = deriveColumnsAndRows(attributeKey);
+    const nextColumns = [...columns];
+    const nextRows = rows.map((r) => [...r]);
+    if (type === 'object' || type === 'arrayOfObjects') {
+      let base = 'new_key';
+      let idx = 1;
+      let name = base;
+      while (nextColumns.includes(name)) {
+        name = `${base}_${idx++}`;
+      }
+      nextColumns.push(name);
+    } else {
+      nextColumns.push(`Value ${nextColumns.length + 1}`);
+    }
+    for (let r = 0; r < nextRows.length; r++) nextRows[r].push('');
+    writeBackAttribute(attributeKey, nextColumns, nextRows, type);
+  };
+
+  const handleRemoveColumn = (attributeKey, colIndex) => {
+    const { columns, rows, type } = deriveColumnsAndRows(attributeKey);
+    const nextColumns = columns.filter((_, idx) => idx !== colIndex);
+    const nextRows = rows.map((r) => r.filter((_, idx) => idx !== colIndex));
+    writeBackAttribute(attributeKey, nextColumns, nextRows, type);
+  };
+
+  const handleAddRow = (attributeKey) => {
+    const { columns, rows, type } = deriveColumnsAndRows(attributeKey);
+    const nextRows = [...rows, Array.from({ length: columns.length }, () => '')];
+    const nextType = type === 'object' ? 'arrayOfObjects' : type;
+    writeBackAttribute(attributeKey, columns, nextRows, nextType);
+  };
+
+  const handleRemoveRow = (attributeKey, rowIndex) => {
+    const { columns, rows, type } = deriveColumnsAndRows(attributeKey);
+    if (type === 'object') {
+      // Clear the single row
+      const cleared = [Array.from({ length: columns.length }, () => '')];
+      writeBackAttribute(attributeKey, columns, cleared, 'object');
+      return;
+    }
+    if (type === 'arrayOfObjects') {
+      const nextRows = rows.filter((_, idx) => idx !== rowIndex);
+      writeBackAttribute(attributeKey, columns, nextRows, type);
+      return;
+    }
+    // Primitive/array: remove last value (column)
+    if (rows[0]?.length > 0) {
+      const nextRows = [rows[0].slice(0, -1)];
+      writeBackAttribute(attributeKey, columns.slice(0, -1), nextRows, type);
+    }
+  };
+
+
+  const handleDragEnd = (event) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = attributesOrder.indexOf(active.id);
+    const newIndex = attributesOrder.indexOf(over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+    setAttributesOrder((items) => arrayMove(items, oldIndex, newIndex));
+  };
+
+  const deleteAttributeRow = (attributeKey) => {
+    if (!extractedData) return;
+    const updated = { ...extractedData };
+    delete updated[attributeKey];
+    setExtractedData(updated);
+    setAttributesOrder((prev) => prev.filter((k) => k !== attributeKey));
+  };
+
+  // Sortable card wrapper
+  function SortableAttributeCard({ attributeKey, children }) {
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: attributeKey });
+    const style = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+      opacity: isDragging ? 0.8 : 1,
+    };
+    return (
+      <div ref={setNodeRef} style={style} {...attributes}>
+        {children({ listeners })}
+      </div>
+    );
+  }
+
   return (
     <MainLayout>
       <Box sx={{paddingTop:'80px'}}>
         <Typography variant="h4" gutterBottom>
-          PDF Data Extraction with Configuration
+          Document Upload
         </Typography>
         
         {/* Configuration Selection */}
@@ -329,7 +540,6 @@ function DocumentUploadMarkdown() {
             onChange={(e) => setSelectedConfig(e.target.value)}
             disabled={configsLoading}
             variant="standard"
-            fullWidth
             MenuProps={MenuProps}
             sx={{backgroundColor:'white'}}
           >
@@ -351,9 +561,9 @@ function DocumentUploadMarkdown() {
         {/* Show selected configuration details */}
         
         {selectedConfigData && (
-          <Card sx={{ mt: 2, mb: 2 }}>
+          <Card sx={{ mt: 2, mb: 2, alignSelf: 'flex-start' }}>
             <CardContent>
-              <Typography variant="h6" gutterBottom>
+              <Typography variant="h6"  gutterBottom>
                 Configuration: {selectedConfigData.name}
               </Typography>
               
@@ -368,9 +578,12 @@ function DocumentUploadMarkdown() {
                 fontSize: '0.75rem',
                 fontFamily: 'monospace',
                 maxHeight: '200px',
-                overflowY: 'auto'
+                overflowY: 'auto',
+                overflowX: 'auto',
               }}>
-                <pre>{JSON.stringify(selectedConfigData.template_json, null, 2)}</pre>
+                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                  {JSON.stringify(selectedConfigData.template_json, null, 2)}
+                </pre>
               </Box>
               
               {/* Show attributes if they exist */}
@@ -397,7 +610,7 @@ function DocumentUploadMarkdown() {
 
         {/* File Upload - Only show after config selection */}
         {selectedConfig && (
-          <Box sx={{ textAlign: 'center' }}>
+          <Box sx={{ textAlign: 'left' }}>
             <Typography variant="h6" sx={{ mb: 2 }}>
               Upload PDF for "{configs.find(c => c.id === selectedConfig)?.name}"
             </Typography>
@@ -456,28 +669,10 @@ function DocumentUploadMarkdown() {
              <Typography variant="h5">
                 Extracted Data
              </Typography>
-             <Box sx={{ display: 'flex', gap: 2 }}>
-               <Button
-                 variant="outlined"
-                 color="primary"
-                  onClick={saveDataToJson}
-                 startIcon={<SaveIcon />}
-               >
-                 Download JSON
-               </Button>
-                               <Button
-                  variant="contained"
-                  color="primary"
-                  onClick={saveDataToBackend}
-                  startIcon={<SaveIcon />}
-                >
-                  Save to S3
-                </Button>
-             </Box>
            </Box>
             
             {/* JSON Display */}
-            <Card sx={{ mt: 2 }}>
+            <Card sx={{ mt: 2, maxWidth: '70%' }}>
               <CardContent>
                 <Typography variant="h6" gutterBottom>
                   OpenAI Extraction Result
@@ -512,7 +707,7 @@ function DocumentUploadMarkdown() {
             </Card>
             
             {/* Table Display of Extracted Data */}
-            <Card sx={{ mt: 2 }}>
+            <Card sx={{ mt: 2, maxWidth: '70%' }}>
               <CardContent>
                 <Typography variant="h6" gutterBottom>
                   Extracted Data Table
@@ -528,35 +723,30 @@ function DocumentUploadMarkdown() {
                         }}>
                           Field Name
                         </TableCell>
-                        {(() => {
-                          // Find the maximum number of comma-separated values across all fields
-                          const maxColumns = Math.max(
-                            ...Object.values(extractedData).map(value => 
-                              String(value).split(';').length
-                            )
-                          );
-                          
-                          // Generate column headers
-                          return Array.from({ length: maxColumns }, (_, index) => (
-                              <TableCell 
-                              key={index} 
-                                sx={{ 
-                                  fontWeight: 'bold',
-                                  backgroundColor: '#f5f5f5',
-                                textAlign: 'center',
-                                minWidth: 120
-                              }}
-                            >
-                              Value {index + 1}
-                              </TableCell>
-                          ));
-                        })()}
-                         </TableRow>
-                       </TableHead>
-                                             <TableBody>
+                         {(() => {
+                           // Compute max columns across normalized values
+                           const maxColumns = Math.max(
+                             ...Object.values(extractedData).map((value) => normalizeValueToColumns(value).length)
+                           );
+                           return Array.from({ length: maxColumns }, (_, index) => (
+                             <TableCell
+                               key={index}
+                               sx={{
+                                 fontWeight: 'bold',
+                                 backgroundColor: '#f5f5f5',
+                                 textAlign: 'center',
+                                 minWidth: 120,
+                               }}
+                             >
+                               Value {index + 1}
+                             </TableCell>
+                           ));
+                         })()}
+                          </TableRow>
+                        </TableHead>
+                                              <TableBody>
                       {Object.entries(extractedData).map(([key, value], rowIdx) => {
-                        // Split the value by comma and trim whitespace
-                        const values = String(value).split(';').map(v => v.trim());
+                        const values = normalizeValueToColumns(value);
                         
                         return (
                              <TableRow key={rowIdx}>
@@ -568,11 +758,8 @@ function DocumentUploadMarkdown() {
                               {key}
                                </TableCell>
                             {(() => {
-                              // Find the maximum number of columns needed
                               const maxColumns = Math.max(
-                                ...Object.values(extractedData).map(value => 
-                                  String(value).split(';').length
-                                )
+                                ...Object.values(extractedData).map((v) => normalizeValueToColumns(v).length)
                               );
                               
                               // Generate cells for this row
@@ -585,18 +772,130 @@ function DocumentUploadMarkdown() {
                                     wordBreak: 'break-word'
                                   }}
                                 >
-                                  {values[colIdx] || ''}
+                                  {values[colIdx] ?? ''}
                                    </TableCell>
                               ));
                             })()}
                           </TableRow>
                                  );
                                })}
-                       </TableBody>
-                    </Table>
-                  </TableContainer>
+                        </TableBody>
+                     </Table>
+                   </TableContainer>
               </CardContent>
             </Card>
+
+            {/* Draggable per-attribute cards */}
+            {extractedData && typeof extractedData === 'object' && !Array.isArray(extractedData) && (
+              <Box sx={{ mt: 3 }}>
+                <Typography variant="h6" gutterBottom>
+                  Attribute Cards (Draggable, Inline Editable)
+                </Typography>
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                  <SortableContext items={attributesOrder} strategy={verticalListSortingStrategy}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      {attributesOrder.map((attrKey) => {
+                        const { columns, rows, type } = deriveColumnsAndRows(attrKey);
+                        return (
+                          <SortableAttributeCard key={attrKey} attributeKey={attrKey}>
+                            {({ listeners }) => (
+                              <Card sx={{ p: 1, width: '70%' }}>
+                                <CardContent>
+                                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                                    <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                                      {attrKey}
+                                    </Typography>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                      <Button startIcon={<AddIcon />} size="small" onClick={() => handleAddColumn(attrKey)}>
+                                        Add Column
+                                      </Button>
+                                      <IconButton size="small" {...listeners} aria-label="drag">
+                                        <DragIndicatorIcon fontSize="small" />
+                                      </IconButton>
+                                    </Box>
+                                  </Box>
+                                  <TableContainer component={Paper}>
+                                    <Table size="small">
+                                      <TableHead>
+                                        <TableRow>
+                                          {columns.map((hdr, idx) => (
+                                            <TableCell key={idx} align="center" sx={{ fontWeight: 'bold' }}>
+                                              {hdr}
+                                              <IconButton size="small" onClick={() => handleRemoveColumn(attrKey, idx)} aria-label={`remove column ${idx + 1}`}>
+                                                <DeleteIcon fontSize="small" />
+                                              </IconButton>
+                                            </TableCell>
+                                          ))}
+                                          <TableCell align="center" sx={{ fontWeight: 'bold' }}>Actions</TableCell>
+                                        </TableRow>
+                                      </TableHead>
+                                      <TableBody>
+                                        {rows.map((row, rowIdx) => {
+                                          return (
+                                            <TableRow key={rowIdx}>
+                                              {row.map((val, colIdx) => (
+                                                <TableCell key={colIdx} align="center">
+                                                  <TextField
+                                                    value={val}
+                                                    onChange={(e) => handleCellChange(attrKey, rowIdx, colIdx, e.target.value)}
+                                                    variant="standard"
+                                                    fullWidth
+                                                  />
+                                                </TableCell>
+                                              ))}
+                                              <TableCell align="center">
+                                                <IconButton color="error" onClick={() => handleRemoveRow(attrKey, rowIdx)} aria-label={`delete row ${rowIdx + 1}`}>
+                                                  <DeleteIcon />
+                                                </IconButton>
+                                              </TableCell>
+                                            </TableRow>
+                                          );
+                                        })}
+                                      </TableBody>
+                                    </Table>
+                                  </TableContainer>
+                                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>
+                                    <Button startIcon={<AddIcon />} size="small" onClick={() => handleAddRow(attrKey)}>
+                                      Add Row
+                                    </Button>
+                                  </Box>
+                                </CardContent>
+                              </Card>
+                            )}
+                          </SortableAttributeCard>
+                        );
+                      })}
+                    </Box>
+                  </SortableContext>
+                </DndContext>
+              </Box>
+            )}
+            <Box sx={{ display: 'flex',marginTop: '20px', justifyContent: 'flex-end' }}>
+               <Button
+                 variant="outlined"
+                 color="primary"
+                  onClick={saveDataToJson}
+                 startIcon={<SaveIcon />}
+               >
+                 Download JSON
+               </Button>
+                 <Button
+                   variant="contained"
+                   color="primary"
+                   onClick={saveDataToBackend}
+                   startIcon={<SaveIcon />}
+                 >
+                   Save to S3
+                 </Button>
+                 <Button
+                   variant="contained"
+                   color="secondary"
+                   disabled={!pdfPresignedUrl || !extractedData}
+                   onClick={() => navigate('/side-by-side', { state: { pdfUrl: pdfPresignedUrl, extractedData, s3PdfKey } })}
+                 >
+                   Open Side-by-Side
+                 </Button>
+              </Box>
           </Box>
           )}
         </Box>

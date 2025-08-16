@@ -9,7 +9,9 @@ import re
 import boto3
 from datetime import datetime
 from supabase import create_client, Client
+from dotenv import load_dotenv
 
+load_dotenv()
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -31,7 +33,7 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 s3_client = boto3.client(
     's3',
     aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY "),
+    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
     region_name=os.getenv("AWS_REGION")
 )
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME")
@@ -74,32 +76,32 @@ async def markdown_to_json(request: Request):
         
         # Create user prompt with configuration details
         user_prompt = f"""
-You are a document extraction tool designed to extract specific information from 
-medical research documents. The extracted information will be used for my own 
-personal publication. Focus only on the relevant factual data from the document.
-ATTRIBUTES TO EXTRACT:
-{json.dumps(attributes, indent=2)}
+            You are a document extraction tool designed to extract specific information from 
+            medical research documents. The extracted information will be used for my own 
+            personal publication. Focus only on the relevant factual data from the document.
+            ATTRIBUTES TO EXTRACT:
+            {json.dumps(attributes, indent=2)}
 
-DOCUMENT TEXT:
-{markdown}
+            DOCUMENT TEXT:
+            {markdown}
 
-Instructions:
-1. For each attribute in the configuration, extract the corresponding information
-2. Use the query to guide your extraction for each attribute
-3. Return a JSON object where each key is the attribute name
-4. If an attribute cannot be found, use null or empty string
-5. Ensure the response is valid JSON only
-6. Do NOT extract table data unless specifically requested in the attributes
-7. If there are multiple answers to an attribute, separate them with a semicolon (;) — do not use commas to separate values.
+            Instructions:
+            1. For each attribute in the configuration, extract the corresponding information
+            2. Use the query to guide your extraction for each attribute
+            3. Return a JSON object where each key is the attribute name
+            4. If an attribute cannot be found, use null or empty string
+            5. Ensure the response is valid JSON only
+            6. Do NOT extract table data unless specifically requested in the attributes
+            7. If there are multiple answers to an attribute, separate each answer with a semicolon (;) — do not use commas to separate values.
 
-Example output format:
-{{
-  "author name": "extracted author name here",
-  "other_attribute": "extracted value here"
-}}
+            Example output format:
+            {{
+            "author name": "extracted author name here",
+            "other_attribute": "extracted value here"
+            }}
 
-Return the extracted data as a JSON object.
-"""
+            Return the extracted data as a JSON object.
+            """
         
         logger.info(f"System prompt length: {len(system_prompt)} characters")
         logger.info(f"User prompt length: {len(user_prompt)} characters")
@@ -196,6 +198,7 @@ async def save_tables(request: Request):
         
         # Save PDF to S3 if provided
         pdf_key = None
+        pdf_url = None
         if pdf_file:
             try:
                 import base64
@@ -209,26 +212,21 @@ async def save_tables(request: Request):
                     ContentType='application/pdf'
                 )
                 logger.info(f"PDF saved to S3: {pdf_key}")
+                # Generate a pre-signed URL for the PDF for easy viewing
+                try:
+                    pdf_url = s3_client.generate_presigned_url(
+                        'get_object',
+                        Params={'Bucket': S3_BUCKET_NAME, 'Key': pdf_key},
+                        ExpiresIn=60 * 60 * 24 * 7  # 7 days
+                    )
+                    logger.info(f"Generated presigned PDF URL")
+                except Exception as presign_err:
+                    logger.error(f"Error generating presigned URL for PDF: {presign_err}")
             except Exception as pdf_error:
                 logger.error(f"PDF upload error: {pdf_error}")
         
-        # Save to Supabase database
-        db_record = {
-            "filename": metadata.get('source', 'Unknown PDF'),
-            "filepath": pdf_key,    # S3 key for the PDF file
-            "extracted_json": json.dumps(data_to_store),  # Store the extracted data
-            "created_at": datetime.now().isoformat()
-        }
-        
-        try:
-            # Insert record into Supabase
-            result = supabase.table('extracted_details').insert(db_record).execute()
-            logger.info(f"Record saved to Supabase: {result}")
-        except Exception as db_error:
-            logger.error(f"Supabase insert error: {db_error}")
-            logger.error(f"Supabase error type: {type(db_error)}")
-            # Continue with S3 success but log database error
-            db_record = None
+        # NOTE: SideBySide will handle saving final edited data to Supabase.
+        db_record = None
         
         logger.info("=== Data saved successfully ===")
         return {
@@ -240,8 +238,56 @@ async def save_tables(request: Request):
                 "tables_json": json_key,
                 "pdf_file": pdf_key
             },
-            "database_record": db_record
+            "s3_urls": {
+                "tables_json_url": s3_client.generate_presigned_url(
+                    'get_object',
+                    Params={'Bucket': S3_BUCKET_NAME, 'Key': json_key},
+                    ExpiresIn=60 * 60 * 24 * 7
+                ) if S3_BUCKET_NAME and json_key else None,
+                "pdf_file_url": pdf_url
+            },
+            "database_record": db_record,
+            "s3_keys_only": True
         }
+
+    except Exception as e:
+        logger.error(f"Exception in save_tables: {str(e)}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        return {"error": f"Failed to save data: {str(e)}"}
+
+@app.post("/finalize-extracted-details")
+async def finalize_extracted_details(request: Request):
+    logger.info("=== Starting finalize-extracted-details request ===")
+    try:
+        data = await request.json()
+        logger.info(f"Finalize payload keys: {list(data.keys())}")
+        filename = data.get("filename", "Unknown PDF")
+        pdf_key = data.get("pdf_key")  # optional
+        extracted_json = data.get("extracted_json", {})
+
+        if not isinstance(extracted_json, (dict, list)):
+            return {"error": "extracted_json must be an object or array"}
+
+        record = {
+            "filename": filename,
+            "filepath": pdf_key,
+            "extracted_json": json.dumps(extracted_json),
+            "created_at": datetime.now().isoformat(),
+        }
+
+        try:
+            result = supabase.table('extracted_details').insert(record).execute()
+            logger.info(f"Finalized record saved to Supabase: {result}")
+            return {"success": True, "id": result.data[0]['id'] if result.data else None}
+        except Exception as db_error:
+            logger.error(f"Supabase insert error: {db_error}")
+            return {"error": f"Failed to save to database: {str(db_error)}"}
+    except Exception as e:
+        logger.error(f"Exception in finalize-extracted-details: {str(e)}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        return {"error": f"Failed to finalize extracted details: {str(e)}"}
         
     except Exception as e:
         logger.error(f"Exception in save_tables: {str(e)}")
@@ -346,6 +392,49 @@ async def save_configuration(request: Request):
         logger.error(f"Full traceback: {traceback.format_exc()}")
         return {"error": f"Failed to save configuration: {str(e)}"}
 
+
+@app.put("/update-configuration/{config_id}")
+async def update_configuration(config_id: int, request: Request):
+    logger.info("=== Starting update-configuration request ===")
+    try:
+        data = await request.json()
+        logger.info(f"Update configuration payload for id {config_id}: {data}")
+
+        name = data.get("name", "")
+        template_json = data.get("template_json", {})
+
+        if not name:
+            return {"error": "Configuration name is required"}
+
+        if not template_json or not template_json.get("attributes"):
+            return {"error": "Template JSON with attributes is required"}
+
+        try:
+            result = (
+                supabase
+                .table('configurations')
+                .update({
+                    "name": name,
+                    "template_json": template_json,
+                })
+                .eq('id', config_id)
+                .execute()
+            )
+            logger.info(f"Configuration updated in Supabase: {result}")
+            return {
+                "success": True,
+                "message": "Configuration updated successfully",
+                "id": config_id,
+            }
+        except Exception as db_error:
+            logger.error(f"Supabase update error: {db_error}")
+            return {"error": f"Failed to update configuration in database: {str(db_error)}"}
+
+    except Exception as e:
+        logger.error(f"Exception in update_configuration: {str(e)}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        return {"error": f"Failed to update configuration: {str(e)}"}
 
 @app.get("/get-configurations")
 async def get_configurations():

@@ -164,7 +164,7 @@ function App() {
           <Card elevation={8} sx={{ mb: 3 }}>
           <CardContent sx={{ p: 0 }}>
       <TableContainer component={Paper}>
-        <Table sx={{ minWidth: 650 }} aria-label="extracted tables">
+        <Table style={{ tableLayout: 'fixed', width: '100%' }}>
           <TableHead>
             <TableRow>
               <TableCell>ID</TableCell>
@@ -188,6 +188,7 @@ function App() {
                   <Button
                     variant="contained"
                     size="small"
+                    style={{ textTransform: 'none' }}
                     onClick={() => handleViewTable(table)}
                   >
                     View Tables
