@@ -190,10 +190,10 @@ function Configuration() {
               <Table style={{ tableLayout: 'fixed', width: '100%' }}>
                 <TableHead>
                   <TableRow sx={{ backgroundColor: '#e3f2fd' }}>
-                    <TableCell sx={{ width: '40%', fontWeight: 'bold' }}>
+                    <TableCell sx={{ width: '30%', fontWeight: 'bold' }}>
                       Attribute Name
                     </TableCell>
-                    <TableCell sx={{ width: '50%', fontWeight: 'bold' }}>
+                    <TableCell sx={{ width: '60%', fontWeight: 'bold' }}>
                       Query
                     </TableCell>
                     <TableCell sx={{ width: '10%', fontWeight: 'bold' }}>

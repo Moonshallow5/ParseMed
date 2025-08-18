@@ -439,6 +439,14 @@ const MenuProps = {
     writeBackAttribute(attributeKey, columns, nextRows, type);
   };
 
+  const handleHeaderRename = (attributeKey, colIndex, newName) => {
+    const { columns, rows, type } = deriveColumnsAndRows(attributeKey);
+    if (!(type === 'object' || type === 'arrayOfObjects')) return;
+    const nextColumns = [...columns];
+    nextColumns[colIndex] = newName;
+    writeBackAttribute(attributeKey, nextColumns, rows, type);
+  };
+
   const handleAddColumn = (attributeKey) => {
     const { columns, rows, type } = deriveColumnsAndRows(attributeKey);
     const nextColumns = [...columns];
@@ -568,24 +576,32 @@ const MenuProps = {
                 Configuration: {selectedConfigData.name}
               </Typography>
               
-              {/* Debug: Show the full template_json structure */}
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                <strong>Template Structure:</strong>
-              </Typography>
-              <Box sx={{ 
-                background: '#f5f5f5', 
-                p: 1, 
-                borderRadius: 1, 
-                fontSize: '0.75rem',
-                fontFamily: 'monospace',
-                maxHeight: '200px',
-                overflowY: 'auto',
-                overflowX: 'auto',
-              }}>
-                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                  {JSON.stringify(selectedConfigData.template_json, null, 2)}
-                </pre>
-              </Box>
+              {/* Configuration attributes table (replaces raw JSON) */}
+              {Array.isArray(selectedConfigData.template_json?.attributes) && selectedConfigData.template_json.attributes.length > 0 && (
+                <Box sx={{ mt: 1 }}>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    <strong>Configuration Attributes</strong>
+                  </Typography>
+                  <TableContainer component={Paper} sx={{ overflowX: 'auto', backgroundColor: '#f7f5f1' }}>
+                    <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 600 }}>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 'bold', width: '35%' }}>Attribute Name</TableCell>
+                          <TableCell sx={{ fontWeight: 'bold' }}>Query</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {selectedConfigData.template_json.attributes.map((attr, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell sx={{ wordBreak: 'break-word' }}>{attr?.name || ''}</TableCell>
+                            <TableCell sx={{ wordBreak: 'break-word' }}>{attr?.query || ''}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+              )}
               
               {/* Show attributes if they exist */}
               {selectedConfigData.template_json?.attributes && (
@@ -593,15 +609,7 @@ const MenuProps = {
                   <strong>Attributes to extract:</strong> {(selectedConfigData.template_json.attributes.length)}
                 </Typography>
               )}
-              
-              {/* Show queries if they exist */}
-              {selectedConfigData.template_json?.queries && (
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                  <strong>Queries:</strong> {Object.keys(selectedConfigData.template_json.queries).join(', ')}
-                </Typography>
-              )}
-              
-              {/* Show creation date */}
+                            
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                 <strong>Created:</strong> {selectedConfigData.created_at ? new Date(selectedConfigData.created_at).toLocaleString() : 'Unknown'}
               </Typography>
@@ -637,30 +645,14 @@ const MenuProps = {
         {extractError && <Typography color="error" sx={{ mt: 2 }}>{extractError}</Typography>}
         
                  {markdown && (
-           <Card sx={{ mt: 2, p: 2, maxWidth: '800px' }}>
-             <CardContent>
-              <Typography variant="h6">Extracted Markdown</Typography>
-               <pre style={{ 
-                 background: '#f7f7f7', 
-                 padding: 8, 
-                 borderRadius: 4, 
-                 overflowX: 'auto',
-                 fontSize: '0.75rem',
-                 lineHeight: '1.2',
-                 maxHeight: '200px',
-                 overflowY: 'auto'
-              }}>{markdown.substring(0, 500)}...</pre>
-               <Button
-                 variant="contained"
-                 sx={{ mt: 2 }}
-                onClick={handleExtractData}
-                 disabled={jsonLoading}
-               >
-                {jsonLoading ? 'Extracting Data...' : 'Extract Data with LLM'}
-               </Button>
-               {jsonError && <Typography color="error" sx={{ mt: 2 }}>{jsonError}</Typography>}
-             </CardContent>
-           </Card>
+                          <Button
+                          variant="contained"
+                          sx={{ mt: 2 }}
+                         onClick={handleExtractData}
+                          disabled={jsonLoading}
+                        >
+                         {jsonLoading ? 'Extracting Data...' : 'Extract Data with LLM'}
+                        </Button>
          )}
 
         {/* Extracted Data Display */}
@@ -672,49 +664,43 @@ const MenuProps = {
              </Typography>
            </Box>
             
-            {/* JSON Display */}
-            <Card sx={{ mt: 2, maxWidth: '70%' }}>
+            {/* JSON Display
+            <Card sx={{ mt: 2, p: 2, maxWidth: '800px' }}>
               <CardContent>
                 <Typography variant="h6" gutterBottom>
                   OpenAI Extraction Result
                 </Typography>
-                <Box sx={{ 
-                  background: '#f8f9fa', 
-                  p: 2, 
-                  borderRadius: 1, 
-                  border: '1px solid #e9ecef',
-                  maxHeight: '400px',
-                  overflowY: 'auto'
-                }}>
+              
                   <pre style={{ 
-                    margin: 0,
-                    fontSize: '0.875rem',
-                    lineHeight: '1.5',
-                    fontFamily: 'monospace',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word'
-                  }}>
+                 background: '#f7f7f7', 
+                 padding: 8, 
+                 borderRadius: 4, 
+                 overflowX: 'auto',
+                 fontSize: '0.75rem',
+                 lineHeight: '1.2',
+                 maxHeight: '200px',
+                 overflowY: 'auto'
+              }}>
                     {JSON.stringify(extractedData, null, 2)}
                   </pre>
-                </Box>
                 
-                {/* Summary of extracted data */}
+                
                 <Box sx={{ mt: 2 }}>
                   <Typography variant="body2" color="text.secondary">
                     <strong>Extracted {Object.keys(extractedData).length} field(s):</strong> {Object.keys(extractedData).join(', ')}
                       </Typography>
                     </Box>
               </CardContent>
-            </Card>
+            </Card> */}
             
             {/* Table Display of Extracted Data */}
-            <Card sx={{ mt: 2, maxWidth: '70%' }}>
+            <Card sx={{ mt: 2, maxWidth: '800px', width: '100%' }}>
               <CardContent>
                 <Typography variant="h6" gutterBottom>
                   Extracted Data Table
                 </Typography>
-                   <TableContainer component={Paper} sx={{ mb: 2, maxWidth: '100%', overflowX: 'auto' }}>
-                     <Table size="small" sx={{ minWidth: 500, maxWidth: '100%' }}>
+                   <TableContainer component={Paper} sx={{ overflowX: 'auto', width: '100%' }}>
+                     <Table size="small"  style={{ tableLayout: 'fixed', width: '100%', minWidth: 700 }}>
                        <TableHead>
                          <TableRow>
                         <TableCell sx={{ 
@@ -800,7 +786,7 @@ const MenuProps = {
                         return (
                           <SortableAttributeCard key={attrKey} attributeKey={attrKey}>
                             {({ listeners }) => (
-                              <Card sx={{ p: 1, width: '70%' }}>
+                              <Card sx={{ p: 1, width: '100%', maxWidth: '800px' }}>
                                 <CardContent>
                                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
                                     <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
@@ -815,13 +801,23 @@ const MenuProps = {
                                       </IconButton>
                                     </Box>
                                   </Box>
-                                  <TableContainer component={Paper}>
+                                  <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
                                     <Table size="small">
                                       <TableHead>
                                         <TableRow>
                                           {columns.map((hdr, idx) => (
                                             <TableCell key={idx} align="center" sx={{ fontWeight: 'bold' }}>
-                                              {hdr}
+                                              {(type === 'object' || type === 'arrayOfObjects') ? (
+                                                <TextField
+                                                  value={hdr}
+                                                  onChange={(e) => handleHeaderRename(attrKey, idx, e.target.value)}
+                                                  variant="standard"
+                                                  size="small"
+                                                  inputProps={{ style: { textAlign: 'center', fontWeight: 700 } }}
+                                                />
+                                              ) : (
+                                                hdr
+                                              )}
                                               <IconButton size="small" onClick={() => handleRemoveColumn(attrKey, idx)} aria-label={`remove column ${idx + 1}`}>
                                                 <DeleteIcon fontSize="small" />
                                               </IconButton>
@@ -871,15 +867,15 @@ const MenuProps = {
                 </DndContext>
               </Box>
             )}
-            <Box sx={{ display: 'flex',marginTop: '20px', justifyContent: 'flex-end' }}>
-               <Button
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 2, justifyContent: 'flex-start' }}>
+               {/* <Button
                  variant="outlined"
                  color="primary"
                   onClick={saveDataToJson}
                  startIcon={<SaveIcon />}
                >
                  Download JSON
-               </Button>
+               </Button> */}
                  <Button
                    variant="contained"
                    color="primary"

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -78,6 +78,9 @@ export default function SideBySide() {
   const [s3PdfKey, setS3PdfKey] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState(null);
+  const containerRef = useRef(null);
+  const [leftWidthPct, setLeftWidthPct] = useState(50);
+  const [isResizing, setIsResizing] = useState(false);
 
   useEffect(() => {
     try {
@@ -93,6 +96,33 @@ export default function SideBySide() {
       }
     } catch (_) {}
   }, [location]);
+
+  useEffect(() => {
+    if (!isResizing) return;
+    const handleMove = (e) => {
+      try {
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const el = containerRef.current;
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        const relativeX = Math.min(Math.max(clientX - rect.left, 0), rect.width);
+        const pct = (relativeX / rect.width) * 100;
+        const clamped = Math.min(80, Math.max(20, pct));
+        setLeftWidthPct(clamped);
+      } catch {}
+    };
+    const handleUp = () => setIsResizing(false);
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    window.addEventListener('touchmove', handleMove, { passive: false });
+    window.addEventListener('touchend', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+      window.removeEventListener('touchmove', handleMove);
+      window.removeEventListener('touchend', handleUp);
+    };
+  }, [isResizing]);
 
   const handleDragEnd = (event) => {
     const { active, over } = event;
@@ -131,6 +161,27 @@ export default function SideBySide() {
       updated[attributeKey] = nextRows[0] ?? [];
     } else {
       updated[attributeKey] = (nextRows[0] ?? []).join('; ');
+    }
+    setExtractedData(updated);
+  };
+
+  const handleHeaderRename = (attributeKey, colIndex, newName) => {
+    const { columns, rows, type } = deriveColumnsAndRowsForValue(extractedData?.[attributeKey]);
+    if (!(type === 'object' || type === 'arrayOfObjects')) return;
+    const nextColumns = [...columns];
+    nextColumns[colIndex] = newName;
+
+    const updated = { ...extractedData };
+    if (type === 'object') {
+      const obj = {};
+      nextColumns.forEach((k, idx) => (obj[k] = rows[0]?.[idx] ?? ''));
+      updated[attributeKey] = obj;
+    } else if (type === 'arrayOfObjects') {
+      updated[attributeKey] = rows.map((row) => {
+        const obj = {};
+        nextColumns.forEach((k, idx) => (obj[k] = row?.[idx] ?? ''));
+        return obj;
+      });
     }
     setExtractedData(updated);
   };
@@ -285,10 +336,10 @@ export default function SideBySide() {
   }
 
   return (
-    <Box sx={{ height: '100vh', width: '100vw', overflow: 'hidden' }}>
+    <Box ref={containerRef} sx={{ height: '100vh', width: '100vw', overflow: 'hidden', userSelect: isResizing ? 'none' : 'auto' }}>
       <Box sx={{ display: 'flex', height: '100%' }}>
         {/* Left: Cards */}
-        <Box sx={{ width: '50%', overflowY: 'auto', p: 2, boxSizing: 'border-box' }}>
+        <Box sx={{ width: `${leftWidthPct}%`, overflowY: 'auto', p: 2, boxSizing: 'border-box' }}>
           <Box sx={{ p: 1 }}>
         <Button variant="outlined" onClick={() => navigate('/upload-markdown')} startIcon={<ArrowBackIcon />}>Back</Button>
       </Box>
@@ -298,7 +349,7 @@ export default function SideBySide() {
             <SortableContext items={attributesOrder} strategy={verticalListSortingStrategy}>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {attributesOrder.map((attrKey) => {
-                  const { columns, rows } = deriveColumnsAndRowsForValue(extractedData?.[attrKey]);
+                  const { columns, rows, type } = deriveColumnsAndRowsForValue(extractedData?.[attrKey]);
                   return (
                     <SortableAttributeCard key={attrKey} attributeKey={attrKey}>
                       {({ listeners }) => (
@@ -331,7 +382,17 @@ export default function SideBySide() {
                                   <TableRow>
                                     {columns.map((hdr, idx) => (
                                       <TableCell key={idx} align="center" sx={{ fontWeight: 'bold' }}>
-                                        {hdr}
+                                        {(type === 'object' || type === 'arrayOfObjects') ? (
+                                          <TextField
+                                            value={hdr}
+                                            onChange={(e) => handleHeaderRename(attrKey, idx, e.target.value)}
+                                            variant="standard"
+                                            size="small"
+                                            inputProps={{ style: { textAlign: 'center', fontWeight: 700 } }}
+                                          />
+                                        ) : (
+                                          {hdr}
+                                        )}
                                         <IconButton size="small" onClick={() => handleRemoveColumn(attrKey, idx)} aria-label={`remove column ${idx + 1}`}>
                                           <DeleteIcon fontSize="small" />
                                         </IconButton>
@@ -387,14 +448,21 @@ export default function SideBySide() {
           </Box>
         </Box>
 
+        {/* Vertical resizer */}
+        <Box
+          onMouseDown={() => setIsResizing(true)}
+          onTouchStart={() => setIsResizing(true)}
+          sx={{ width: '6px', cursor: 'col-resize', backgroundColor: isResizing ? '#ccc' : '#eee', '&:hover': { backgroundColor: '#ddd' } }}
+        />
+
         {/* Right: PDF via iframe */}
-        <Box sx={{ width: '50%', borderLeft: '1px solid #eee', overflow: 'hidden', p: 2 }}>
+        <Box sx={{ width: `${100 - leftWidthPct}%`, overflow: 'hidden', p: 2 }}>
           <Typography variant="h6" sx={{ mb: 2 }}>PDF Preview</Typography>
           {pdfUrl ? (
             <iframe
               title="pdf-preview"
               src={pdfUrl}
-              style={{ width: '100%', height: 'calc(100% - 40px)', border: 'none' }}
+              style={{ width: '100%', height: 'calc(100% - 40px)', border: 'none', pointerEvents: isResizing ? 'none' : 'auto' }}
             />
           ) : (
             <Typography variant="body1">No PDF URL found. Save to S3 from Upload Markdown first.</Typography>

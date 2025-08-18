@@ -3,6 +3,7 @@ import MainLayout from '../components/MainLayout';
 import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
+import AddIcon from '@mui/icons-material/Add';
 import Typography from '@mui/material/Typography';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
@@ -74,12 +75,11 @@ function ViewConfigs() {
 
   return (
     <MainLayout>
-      <Box sx={{paddingTop:'80px'}} >
           <Typography variant="h4" gutterBottom>View Configs</Typography>
-          <Card elevation={8} sx={{ mb: 3 }}>
-          <CardContent sx={{ p: 0 }}>
-        <TableContainer component={Paper} >
-          <Table style={{ tableLayout: 'fixed', width: '100%' }}>
+          <Card elevation={8} sx={{ p: 1, width: '100%'}}>
+        <CardContent>
+        <TableContainer component={Paper} sx={{ overflowX: 'auto', width: '100%' }}>
+          <Table sx={{ tableLayout: 'fixed', width: '100%'}}>
             <TableHead>
               <TableRow>
                 <TableCell>ID</TableCell>
@@ -91,7 +91,7 @@ function ViewConfigs() {
             </TableHead>
             <TableBody>
               {configs.map((cfg) => (
-                <TableRow key={cfg.id} sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
+                <TableRow key={cfg.id}>
                   <TableCell>{cfg.id}</TableCell>
                   <TableCell>{cfg.name}</TableCell>
                   <TableCell>{cfg.created_by || 'N/A'}</TableCell>
@@ -108,7 +108,6 @@ function ViewConfigs() {
         </TableContainer>
         </CardContent>
         </Card>
-      </Box>
     </MainLayout>
   );
 }

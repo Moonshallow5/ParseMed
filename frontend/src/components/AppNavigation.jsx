@@ -58,6 +58,11 @@ const StyledDrawer = styled(Drawer, { shouldForwardProp: (prop) => prop !== 'ope
       ...openedMixin(theme),
       '& .MuiDrawer-paper': {
         ...openedMixin(theme),
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        height: '100vh',
+        overflowY: 'auto',
         backgroundColor: "#00917c",
         color: "white",
       },
@@ -66,6 +71,11 @@ const StyledDrawer = styled(Drawer, { shouldForwardProp: (prop) => prop !== 'ope
       ...closedMixin(theme),
       '& .MuiDrawer-paper': {
         ...closedMixin(theme),
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        height: '100vh',
+        overflowY: 'auto',
         backgroundColor: "#00917c",
         color: "white",
       },
@@ -81,22 +91,25 @@ const navigationItems = [
   { title: "View Configs", route: "/view-configs", icon: <VisibilityIcon /> },
 ];
 
-export default function AppNavigation({ onLogout, variant = "permanent", open = true, onClose, onToggleOpen }) {
+export default function AppNavigation({ onLogout, variant = "temporary", open = true, onClose, onToggleOpen }) {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const DrawerComponent = StyledDrawer;
+
   return (
-    <StyledDrawer
-      variant={variant}
+    <DrawerComponent
+      variant="permanent"
       anchor="left"
       open={open}
-      ModalProps={{ keepMounted: true, disableEscapeKeyDown: true }}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowX: 'hidden' }}>
         <div>
           <DrawerHeader>
             <IconButton
-              onClick={onToggleOpen}
+              onClick={() => {
+                onToggleOpen && onToggleOpen();
+              }}
               sx={{ color: 'white' }}
               size="small"
             >
@@ -219,6 +232,6 @@ export default function AppNavigation({ onLogout, variant = "permanent", open = 
           </List>
         </div>
       </div>
-    </StyledDrawer>
+    </DrawerComponent>
   );
 }

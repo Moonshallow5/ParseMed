@@ -3,8 +3,7 @@ import AppNavigation from './AppNavigation';
 import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
-import IconButton from '@mui/material/IconButton';
-import MenuIcon from '@mui/icons-material/Menu';
+ 
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
 
@@ -37,7 +36,7 @@ const StyledAppBar = ({ theme, open, isSmallScreen }) => ({
     easing: theme.transitions.easing.sharp,
     duration: theme.transitions.duration.leavingScreen,
   }),
-  ...(open && !isSmallScreen && {
+  ...(open && {
     marginLeft: drawerWidth,
     width: `calc(100% - ${drawerWidth}px)`,
     transition: theme.transitions.create(['width', 'margin'], {
@@ -45,7 +44,7 @@ const StyledAppBar = ({ theme, open, isSmallScreen }) => ({
       duration: theme.transitions.duration.enteringScreen,
     }),
   }),
-  ...(!open && !isSmallScreen && {
+  ...(!open && {
     marginLeft: `calc(${theme.spacing(7)} + 1px)`,
     width: `calc(100% - ${theme.spacing(7)} - 1px)`,
     [theme.breakpoints.up('sm')]: {
@@ -58,28 +57,28 @@ const StyledAppBar = ({ theme, open, isSmallScreen }) => ({
 export default function MainLayout({ children, ...navProps }) {
   const theme = useTheme();
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'));
-  const [drawerOpen, setDrawerOpen] = useState(!isSmallScreen);
+  const [drawerOpen, setDrawerOpen] = useState(true);
 
-  React.useEffect(() => {
-    setDrawerOpen(!isSmallScreen);
-  }, [isSmallScreen]);
+  // Keep drawer state persistent across breakpoint changes
 
   const handleDrawerToggle = () => {
     setDrawerOpen((open) => !open);
   };
 
   return (
-    <div style={{ display: 'flex' }}>
+    <div style={{ display: 'flex', width: '100%', overflowX: 'hidden' }}>
       <AppNavigation
         {...navProps}
-        variant={isSmallScreen ? 'temporary' : 'permanent'}
+        variant={'temporary'}
         open={drawerOpen}
-        onClose={handleDrawerToggle}
-        onToggleOpen={handleDrawerToggle}
+        onClose={() => {
+          // Return focus to the menu button after closing for a11y
+          setDrawerOpen(false);
+        }}
+        onToggleOpen={() => setDrawerOpen((prev) => !prev)}
       />
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowX: 'hidden' }}>
         <AppBar
-          position="absolute"
           sx={{
             ...StyledAppBar({ theme, open: drawerOpen, isSmallScreen }),
             backgroundColor: '#f7f5f1',
@@ -88,24 +87,13 @@ export default function MainLayout({ children, ...navProps }) {
           }}
         >
           <Toolbar>
-            {/* Show toggle button only when drawer is closed on small screens */}
-            {isSmallScreen && !drawerOpen && (
-              <IconButton
-                color="inherit"
-                aria-label="open drawer"
-                edge="start"
-                onClick={handleDrawerToggle}
-                sx={{ mr: 2 }}
-              >
-                <MenuIcon />
-              </IconButton>
-            )}
-            <Typography variant="h6" noWrap component="div" sx={{ fontWeight: 'bold' }}>
+            <Typography variant="h6"  component="div" sx={{ fontWeight: 'bold' }}>
               Parse Med
             </Typography>
           </Toolbar>
         </AppBar>
-        
+        {/* Spacer to offset fixed AppBar height */}
+        <Toolbar />
         <main
           style={{
             display: 'flex',
@@ -113,10 +101,10 @@ export default function MainLayout({ children, ...navProps }) {
             alignItems: 'center',
             justifyContent: 'flex-start',
             minHeight: '100vh',
-            padding: '24px',
-            boxSizing: 'border-box',
+            padding: '15px',
             width: '100%',
-            textAlign: 'center'
+            textAlign: 'center',
+            overflowX: 'hidden'
           }}
         >
           {children}
