@@ -535,23 +535,68 @@ const MenuProps = {
 
   return (
     <MainLayout>
-      <Box sx={{paddingTop:'80px'}}>
-        <Typography variant="h4" gutterBottom>
+      <Box sx={{ 
+        width: '100%', 
+        display: 'flex', 
+        flexDirection: 'column', 
+        alignItems: 'center',
+        textAlign: 'center'
+      }}>
+        <Typography variant="h4" gutterBottom sx={{color:'black', width:'100%' }}>
           Document Upload
         </Typography>
         
         {/* Configuration Selection */}
-        <FormControl fullWidth>
-          <InputLabel>Select Configuration</InputLabel>
-          <Select
-            value={selectedConfig}
-            label="Select Configuration"
-            onChange={(e) => setSelectedConfig(e.target.value)}
-            disabled={configsLoading}
-            variant="standard"
-            MenuProps={MenuProps}
-            sx={{backgroundColor:'white'}}
-          >
+        <Box sx={{ 
+          width: '100%', 
+          maxWidth: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'stretch'
+        }}>
+          <FormControl fullWidth sx={{ width: '100%', minWidth: '100%' }}>
+            <InputLabel>Select Configuration</InputLabel>
+            <Select
+              value={selectedConfig}
+              label="Select Configuration"
+              onChange={(e) => setSelectedConfig(e.target.value)}
+              disabled={configsLoading}
+              variant="standard"
+              MenuProps={{
+                PaperProps: {
+                  style: {
+                    maxHeight: ITEM_HEIGHT * 4.5 + ITEM_PADDING_TOP,
+                    width: '100%',
+                    minWidth: '100%'
+                  },
+                },
+              }}
+                             sx={{
+                 backgroundColor: 'white',
+                 width: '100%',
+                 minWidth: '100%',
+                 '& .MuiSelect-select': {
+                   width: '100%',
+                   minWidth: '100%'
+                 },
+                 '& .MuiInputBase-root': {
+                   width: '100%',
+                   minWidth: '100%'
+                 },
+                 '& .MuiInputBase-input': {
+                   width: '100%',
+                   minWidth: '100%'
+                 },
+                 '& .MuiInput-input': {
+                   width: '100%',
+                   minWidth: '100%'
+                 },
+                 '& .css-unhb03-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiInput-input': {
+                   width: '100%',
+                   minWidth: '100%'
+                 }
+               }}
+            >
 
             {configs.map((config) => (
               <MenuItem key={config.id} value={config.id}>
@@ -560,6 +605,7 @@ const MenuProps = {
             ))}
           </Select>
         </FormControl>
+        </Box>
         
         {configsError && (
           <Typography color="error" sx={{ fontSize: '0.875rem' }}>
@@ -619,8 +665,8 @@ const MenuProps = {
 
         {/* File Upload - Only show after config selection */}
         {selectedConfig && (
-          <Box sx={{ textAlign: 'left' }}>
-            <Typography variant="h6" sx={{ mb: 2 }}>
+          <Box sx={{ textAlign: 'center' }}>
+            <Typography variant="h6" sx={{ mb: 2, color:'black' }}>
               Upload PDF for "{configs.find(c => c.id === selectedConfig)?.name}"
             </Typography>
             <div>

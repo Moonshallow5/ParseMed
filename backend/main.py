@@ -10,7 +10,7 @@ import boto3
 from datetime import datetime
 from supabase import create_client, Client
 from dotenv import load_dotenv
-
+from fastapi.responses import JSONResponse
 load_dotenv()
 
 # Set up logging
@@ -44,6 +44,9 @@ supabase_key = os.getenv("SUPABASE_ANON_KEY")
 
 supabase: Client = create_client(supabase_url, supabase_key)
 
+@app.get("/")
+def root():
+    return JSONResponse({"message": "Hello from FastAPI on Vercel!"})
 
 @app.post("/markdown-to-json")
 async def markdown_to_json(request: Request):

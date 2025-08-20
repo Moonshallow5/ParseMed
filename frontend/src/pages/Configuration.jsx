@@ -163,12 +163,11 @@ function Configuration() {
 
   return (
     <MainLayout>
-      <Box sx={{ p: 5 }}>
-        <Typography variant="h4" gutterBottom sx={{marginTop:'30px'}} >
+        <Typography variant="h4" gutterBottom sx={{color:'black'}} >
           Extraction Configuration
         </Typography>
-        
-        <Typography variant="body2" sx={{ mb: 3, color: 'white' }}>
+        <Box sx={{ paddingLeft: 5, paddingRight: 5 }}>
+        <Typography variant="body2" sx={{ mb: 3, color: 'black' }}>
           Define the attributes and queries you want OpenAI to extract from your documents.
         </Typography>
 
@@ -186,10 +185,10 @@ function Configuration() {
 
         <Card elevation={8} sx={{ mb: 3 }}>
           <CardContent sx={{ p: 0 }}>
-            <TableContainer component={Paper} sx={{ backgroundColor: '#f7f5f1' }}>
+            <TableContainer component={Paper} sx={{ backgroundColor: '#e9edf6' }}>
               <Table style={{ tableLayout: 'fixed', width: '100%' }}>
                 <TableHead>
-                  <TableRow sx={{ backgroundColor: '#e3f2fd' }}>
+                  <TableRow>
                     <TableCell sx={{ width: '30%', fontWeight: 'bold' }}>
                       Attribute Name
                     </TableCell>

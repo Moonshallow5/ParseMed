@@ -75,7 +75,7 @@ function ViewConfigs() {
 
   return (
     <MainLayout>
-          <Typography variant="h4" gutterBottom>View Configs</Typography>
+          <Typography variant="h4" sx={{color:'black'}} gutterBottom>View Configs</Typography>
           <Card elevation={8} sx={{ p: 1, width: '100%'}}>
         <CardContent>
         <TableContainer component={Paper} sx={{ overflowX: 'auto', width: '100%' }}>

@@ -9,27 +9,6 @@ import { useTheme } from '@mui/material/styles';
 
 const drawerWidth = 290;
 
-const openedMixin = (theme) => ({
-  width: drawerWidth,
-  transition: theme.transitions.create('width', {
-    easing: theme.transitions.easing.sharp,
-    duration: theme.transitions.duration.enteringScreen,
-  }),
-  overflowX: 'hidden',
-});
-
-const closedMixin = (theme) => ({
-  transition: theme.transitions.create('width', {
-    easing: theme.transitions.easing.sharp,
-    duration: theme.transitions.duration.leavingScreen,
-  }),
-  overflowX: 'hidden',
-  width: `calc(${theme.spacing(7)} + 1px)`,
-  [theme.breakpoints.up('sm')]: {
-    width: `calc(${theme.spacing(8)} + 1px)`,
-  },
-});
-
 const StyledAppBar = ({ theme, open, isSmallScreen }) => ({
   zIndex: theme.zIndex.drawer + 1,
   transition: theme.transitions.create(['width', 'margin'], {
@@ -45,8 +24,8 @@ const StyledAppBar = ({ theme, open, isSmallScreen }) => ({
     }),
   }),
   ...(!open && {
-    marginLeft: `calc(${theme.spacing(7)} + 1px)`,
-    width: `calc(100% - ${theme.spacing(7)} - 1px)`,
+    marginLeft: `calc(${theme.spacing(8)} + 1px)`,
+    width: `calc(100% - ${theme.spacing(8)} - 1px)`,
     [theme.breakpoints.up('sm')]: {
       marginLeft: `calc(${theme.spacing(8)} + 1px)`,
       width: `calc(100% - ${theme.spacing(8)} - 1px)`,
@@ -61,29 +40,25 @@ export default function MainLayout({ children, ...navProps }) {
 
   // Keep drawer state persistent across breakpoint changes
 
-  const handleDrawerToggle = () => {
-    setDrawerOpen((open) => !open);
-  };
-
   return (
     <div style={{ display: 'flex', width: '100%', overflowX: 'hidden' }}>
       <AppNavigation
         {...navProps}
-        variant={'temporary'}
+        variant="permanent"
         open={drawerOpen}
         onClose={() => {
-          // Return focus to the menu button after closing for a11y
           setDrawerOpen(false);
         }}
         onToggleOpen={() => setDrawerOpen((prev) => !prev)}
       />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowX: 'hidden' }}>
-        <AppBar
+      <AppBar
           sx={{
             ...StyledAppBar({ theme, open: drawerOpen, isSmallScreen }),
-            backgroundColor: '#f7f5f1',
+            backgroundColor: 'white',
             color: '#222',
-            boxShadow: 'none',
+            boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.3)',
+            elevation: 8,
           }}
         >
           <Toolbar>
@@ -101,10 +76,10 @@ export default function MainLayout({ children, ...navProps }) {
             alignItems: 'center',
             justifyContent: 'flex-start',
             minHeight: '100vh',
-            padding: '15px',
+            padding: '30px',
             width: '100%',
             textAlign: 'center',
-            overflowX: 'hidden'
+            boxSizing: 'border-box',
           }}
         >
           {children}

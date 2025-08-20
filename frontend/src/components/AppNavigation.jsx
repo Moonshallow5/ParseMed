@@ -34,7 +34,7 @@ const closedMixin = (theme) => ({
     duration: theme.transitions.duration.leavingScreen,
   }),
   overflowX: 'hidden',
-  width: `calc(${theme.spacing(7)} + 1px)`,
+  width: `calc(${theme.spacing(8)} + 1px)`,
   [theme.breakpoints.up('sm')]: {
     width: `calc(${theme.spacing(8)} + 1px)`,
   },
@@ -99,19 +99,32 @@ export default function AppNavigation({ onLogout, variant = "temporary", open = 
 
   return (
     <DrawerComponent
-      variant="permanent"
+      variant={variant}
       anchor="left"
       open={open}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowX: 'hidden' }}>
-        <div>
-          <DrawerHeader>
-            <IconButton
+                           <div 
+          style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowX: 'hidden' }}
+          onClick={(e) => {
+            // Only open the drawer if it's currently closed
+            // Don't open if clicking on the chevron icon (let that handle its own logic)
+            if (!open && onToggleOpen && !e.target.closest('button')) {
+              onToggleOpen();
+            }
+          }}
+          sx={{ cursor: !open ? 'pointer' : 'default' }}
+        >
+         <div>
+           <DrawerHeader>
+          <IconButton
               onClick={() => {
-                onToggleOpen && onToggleOpen();
+                if (onToggleOpen) {
+                  onToggleOpen();
+                }
               }}
               sx={{ color: 'white' }}
               size="small"
+              aria-label={open ? 'Close navigation drawer' : 'Open navigation drawer'}
             >
               <ChevronLeftIcon sx={{ transform: open ? 'none' : 'rotate(180deg)', transition: 'transform 0.2s' }} />
             </IconButton>

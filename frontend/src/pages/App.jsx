@@ -160,13 +160,13 @@ function App() {
 
   return (
     <MainLayout >
-       <Box sx={{paddingTop:'80px'}} >
-          <Typography variant="h4" gutterBottom>Extraction results</Typography>
-          <Card elevation={8} sx={{ mb: 3 }}>
-          <CardContent sx={{ p: 0 }}>
-      <TableContainer component={Paper}>
-        <Table style={{ tableLayout: 'fixed', width: '100%' }}>
-          <TableHead>
+       <Box>
+          <Typography variant="h4" sx={{color:'black'}} gutterBottom>Extraction results</Typography>
+          <Card elevation={8} sx={{ p:3  }}>
+          <CardContent >
+      <TableContainer component={Paper} sx={{borderRadius:'20px'}}>
+        <Table style={{ tableLayout: 'fixed', width: '100%'}}>
+          <TableHead sx={{backgroundColor:'#e9edf6'}}>
             <TableRow>
               <TableCell>ID</TableCell>
               <TableCell>Filename</TableCell>
