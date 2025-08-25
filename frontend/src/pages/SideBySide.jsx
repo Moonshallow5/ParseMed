@@ -121,8 +121,13 @@ export default function SideBySide() {
           setExtractedData(navData);
           setAttributesOrder(Object.keys(navData));
         }
-        if (navPdfUrl) setPdfUrl(navPdfUrl);
-        if (navPdfFile) setPdfFile(navPdfFile);
+        if (navPdfUrl) {
+          setPdfUrl(navPdfUrl);
+          // If we have a blob URL from navigation, we don't need to create a new one
+          setPdfFile(null); // Clear the file since we have the URL
+        } else if (navPdfFile) {
+          setPdfFile(navPdfFile);
+        }
         if (navSourceFilename) setSourceFilename(navSourceFilename);
         if (navPdfKey) setS3PdfKey(navPdfKey);
         
@@ -225,12 +230,17 @@ export default function SideBySide() {
     if (pdfFile && !pdfUrl) {
       const objectUrl = URL.createObjectURL(pdfFile);
       setPdfUrl(objectUrl);
-      
-      // Cleanup function to revoke URL only when component unmounts
-      return () => {
-        URL.revokeObjectURL(objectUrl);
-      };
     }
+  }, [pdfFile, pdfUrl]);
+
+  // Cleanup PDF URL when component unmounts
+  useEffect(() => {
+    return () => {
+      // Only cleanup if we created the URL here (not if it came from navigation)
+      if (pdfFile && pdfUrl && pdfUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(pdfUrl);
+      }
+    };
   }, [pdfFile, pdfUrl]);
 
   // Calculate page positions when PDF loads

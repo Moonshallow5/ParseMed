@@ -40,6 +40,7 @@ function DocumentUploadMarkdown() {
   const [configsError, setConfigsError] = useState(null);
   const [file, setFile] = useState(null);
   const [markdown, setMarkdown] = useState(null);
+  const [pdfUrl, setPdfUrl] = useState(null); // Add state for PDF URL
   const [loadingExtract, setLoadingExtract] = useState(false);
   const [extractError, setExtractError] = useState(null);
   const [extractedData, setExtractedData] = useState(null);
@@ -86,8 +87,14 @@ function DocumentUploadMarkdown() {
 
   // Reset file and related state when config changes
   useEffect(() => {
+    // Clean up previous PDF URL if it exists
+    if (pdfUrl) {
+      URL.revokeObjectURL(pdfUrl);
+    }
+    
     setFile(null);
     setMarkdown(null);
+    setPdfUrl(null);
     setExtractedData(null);
     setExtractError(null);
     setJsonError(null);
@@ -99,7 +106,17 @@ function DocumentUploadMarkdown() {
     } else {
       setSelectedConfigData(null);
     }
-  }, [selectedConfig, configs]);
+  }, [selectedConfig, configs, pdfUrl]);
+
+  // Cleanup blob URLs when component unmounts
+  useEffect(() => {
+    return () => {
+      // Clean up any blob URLs when component unmounts
+      if (pdfUrl) {
+        URL.revokeObjectURL(pdfUrl);
+      }
+    };
+  }, [pdfUrl]);
 
   const onFileChange = async (event) => {
     const selectedFile = event.target.files[0];
@@ -110,14 +127,17 @@ function DocumentUploadMarkdown() {
       setExtractError(null);
       setJsonError(null);
       setLoadingExtract(true);
+      
+      // Create blob URL for the PDF file
+      const objectUrl = URL.createObjectURL(selectedFile);
+      setPdfUrl(objectUrl);
+      
       try {
         // Read the PDF as ArrayBuffer
         const arrayBuffer = await selectedFile.arrayBuffer();
         // Convert PDF to Markdown
         const md = await pdf2md(arrayBuffer);
         setMarkdown(md);
-
-        
       } catch (err) {
         setExtractError(err.message);
       } finally {
@@ -764,7 +784,7 @@ function DocumentUploadMarkdown() {
                   navigate('/side-by-side', { 
                     state: { 
                       extractedData, 
-                      pdfFile: file,
+                      pdfUrl: pdfUrl, // Use the stored PDF URL
                       sourceFilename: file.name 
                     } 
                   });
