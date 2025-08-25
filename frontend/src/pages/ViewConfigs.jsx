@@ -1,10 +1,7 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import MainLayout from '../components/MainLayout';
-import Box from '@mui/material/Box';
-import Card from '@mui/material/Card';
-import CardContent from '@mui/material/CardContent';
-import AddIcon from '@mui/icons-material/Add';
 import Typography from '@mui/material/Typography';
+import Box from '@mui/material/Box';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
@@ -75,39 +72,38 @@ function ViewConfigs() {
 
   return (
     <MainLayout>
-          <Typography variant="h4" sx={{color:'black'}} gutterBottom>View Configs</Typography>
-          <Card elevation={8} sx={{ p: 1, width: '100%'}}>
-        <CardContent>
-        <TableContainer component={Paper} sx={{ overflowX: 'auto', width: '100%' }}>
-          <Table sx={{ tableLayout: 'fixed', width: '100%'}}>
-            <TableHead>
-              <TableRow>
-                <TableCell>ID</TableCell>
-                <TableCell>Name</TableCell>
-                <TableCell>Created By</TableCell>
-                <TableCell>Created At</TableCell>
-                <TableCell align="center">Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {configs.map((cfg) => (
-                <TableRow key={cfg.id}>
-                  <TableCell>{cfg.id}</TableCell>
-                  <TableCell>{cfg.name}</TableCell>
-                  <TableCell>{cfg.created_by || 'N/A'}</TableCell>
-                  <TableCell>{cfg.created_at ? new Date(cfg.created_at).toLocaleString() : '—'}</TableCell>
-                  <TableCell align="center">
-                    <Button size="small" variant="text" onClick={() => handleViewJson(cfg)}>
-                      View
-                    </Button>
-                  </TableCell>
+      <Box>
+          <Typography variant="h4" style={{color:'black'}} gutterBottom>View Configs</Typography>
+          <TableContainer component={Paper} sx={{borderRadius:'20px', width:'100%'}}>
+            <Table sx={{  width:'100%', tableLayout:'fixed' }}>
+              <TableHead sx={{backgroundColor:'#e9edf6'}}>
+                <TableRow>
+                  <TableCell>ID</TableCell>
+                  <TableCell>Name</TableCell>
+                  <TableCell>Created By</TableCell>
+                  <TableCell>Created At</TableCell>
+                  <TableCell align="center">Actions</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-        </CardContent>
-        </Card>
+              </TableHead>
+              <TableBody>
+                {configs.map((cfg) => (
+                  <TableRow key={cfg.id}>
+                    <TableCell component="th" scope="row">{cfg.id}</TableCell>
+                    <TableCell>{cfg.name}</TableCell>
+                    <TableCell>{cfg.created_by || 'N/A'}</TableCell>
+                    <TableCell>{cfg.created_at ? new Date(cfg.created_at).toLocaleString() : '—'}</TableCell>
+
+                    <TableCell align="center">
+                      <Button size="small" variant="text" onClick={() => handleViewJson(cfg)}>
+                        View
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+          </Box>
     </MainLayout>
   );
 }

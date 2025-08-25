@@ -201,7 +201,6 @@ async def save_tables(request: Request):
         
         # Save PDF to S3 if provided
         pdf_key = None
-        pdf_url = None
         if pdf_file:
             try:
                 import base64
@@ -215,42 +214,24 @@ async def save_tables(request: Request):
                     ContentType='application/pdf'
                 )
                 logger.info(f"PDF saved to S3: {pdf_key}")
-                # Generate a pre-signed URL for the PDF for easy viewing
-                try:
-                    pdf_url = s3_client.generate_presigned_url(
-                        'get_object',
-                        Params={'Bucket': S3_BUCKET_NAME, 'Key': pdf_key},
-                        ExpiresIn=60 * 60 * 24 * 7  # 7 days
-                    )
-                    logger.info(f"Generated presigned PDF URL")
-                except Exception as presign_err:
-                    logger.error(f"Error generating presigned URL for PDF: {presign_err}")
             except Exception as pdf_error:
                 logger.error(f"PDF upload error: {pdf_error}")
         
         # NOTE: SideBySide will handle saving final edited data to Supabase.
+        # Presigned URLs are generated on-demand via /get-pdf-url endpoint when needed.
         db_record = None
         
         logger.info("=== Data saved successfully ===")
         return {
             "success": True,
-            "message": "Data saved successfully to S3 and database",
+            "message": "Data saved successfully to S3",
             "savedAt": datetime.now().isoformat(),
             "metadata": metadata,
             "s3_keys": {
                 "tables_json": json_key,
                 "pdf_file": pdf_key
             },
-            "s3_urls": {
-                "tables_json_url": s3_client.generate_presigned_url(
-                    'get_object',
-                    Params={'Bucket': S3_BUCKET_NAME, 'Key': json_key},
-                    ExpiresIn=60 * 60 * 24 * 7
-                ) if S3_BUCKET_NAME and json_key else None,
-                "pdf_file_url": pdf_url
-            },
-            "database_record": db_record,
-            "s3_keys_only": True
+            "database_record": db_record
         }
 
     except Exception as e:
@@ -291,13 +272,33 @@ async def finalize_extracted_details(request: Request):
         import traceback
         logger.error(f"Full traceback: {traceback.format_exc()}")
         return {"error": f"Failed to finalize extracted details: {str(e)}"}
+
+
+@app.get("/get-pdf-url")
+async def get_pdf_url(pdf_key: str):
+    logger.info(f"=== Starting get-pdf-url request for key: {pdf_key} ===")
+    try:
+        if not pdf_key:
+            return {"error": "pdf_key is required"}
         
+        try:
+            # Generate a fresh presigned URL for the PDF
+            pdf_url = s3_client.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': S3_BUCKET_NAME, 'Key': pdf_key},
+                ExpiresIn=60 * 60 * 24 * 7  # 7 days
+            )
+            logger.info(f"Generated fresh presigned URL for PDF: {pdf_key}")
+            return {"success": True, "pdf_url": pdf_url}
+        except Exception as s3_error:
+            logger.error(f"Error generating presigned URL: {s3_error}")
+            return {"error": f"Failed to generate PDF URL: {str(s3_error)}"}
+            
     except Exception as e:
-        logger.error(f"Exception in save_tables: {str(e)}")
-        logger.error(f"Exception type: {type(e)}")
+        logger.error(f"Exception in get-pdf-url: {str(e)}")
         import traceback
         logger.error(f"Full traceback: {traceback.format_exc()}")
-        return {"error": f"Failed to save data: {str(e)}"}
+        return {"error": f"Failed to get PDF URL: {str(e)}"}
 
 
 @app.get("/get-saved-tables")

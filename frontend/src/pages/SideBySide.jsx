@@ -24,7 +24,19 @@ import { CSS } from '@dnd-kit/utilities';
 import SaveIcon from '@mui/icons-material/Save';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { API_BASE_URL } from '../config';
+import { Document, Page } from 'react-pdf';
+import 'react-pdf/dist/Page/AnnotationLayer.css';
+import 'react-pdf/dist/Page/TextLayer.css';
+import {pdfjs} from 'react-pdf';
+
+pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url,
+).toString();
 
 function stringifyCell(v) {
   return v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
@@ -75,27 +87,111 @@ export default function SideBySide() {
   const [attributesOrder, setAttributesOrder] = useState([]);
   const [extractedData, setExtractedData] = useState(null);
   const [pdfUrl, setPdfUrl] = useState(null);
+  const [pdfFile, setPdfFile] = useState(null);
+  const [sourceFilename, setSourceFilename] = useState(null);
   const [s3PdfKey, setS3PdfKey] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState(null);
   const containerRef = useRef(null);
   const [leftWidthPct, setLeftWidthPct] = useState(50);
   const [isResizing, setIsResizing] = useState(false);
+  const [actionMenuAnchor, setActionMenuAnchor] = useState(null);
+  const [activeRow, setActiveRow] = useState(null);
+  const [numPages, setNumPages] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pdfUrlLoading, setPdfUrlLoading] = useState(false);
+  const [isViewingSavedTable, setIsViewingSavedTable] = useState(false);
+  const pdfContainerRef = useRef(null);
+  const [pagePositions, setPagePositions] = useState([]);
+  const [pdfWidth, setPdfWidth] = useState(800);
 
   useEffect(() => {
     try {
       if (location && location.state) {
-        const { pdfUrl: navPdfUrl, extractedData: navData, s3PdfKey: navPdfKey } = location.state || {};
+        const { 
+          pdfUrl: navPdfUrl, 
+          extractedData: navData, 
+          s3PdfKey: navPdfKey,
+          pdfFile: navPdfFile,
+          sourceFilename: navSourceFilename,
+          isFromSavedTable: navIsFromSavedTable
+        } = location.state || {};
+        
         if (navData && typeof navData === 'object' && !Array.isArray(navData)) {
           setExtractedData(navData);
           setAttributesOrder(Object.keys(navData));
         }
         if (navPdfUrl) setPdfUrl(navPdfUrl);
+        if (navPdfFile) setPdfFile(navPdfFile);
+        if (navSourceFilename) setSourceFilename(navSourceFilename);
         if (navPdfKey) setS3PdfKey(navPdfKey);
+        
+        // If coming from a saved table, we need to generate a fresh presigned URL
+        if (navIsFromSavedTable && navPdfKey) {
+          setIsViewingSavedTable(true);
+          generateFreshPdfUrl(navPdfKey);
+        }
+        
         return;
       }
     } catch (_) {}
   }, [location]);
+
+  // Function to generate fresh presigned URL for PDF
+  const generateFreshPdfUrl = async (pdfKey) => {
+    try {
+      setPdfUrlLoading(true);
+      const response = await fetch(`${API_BASE_URL}/get-pdf-url?pdf_key=${encodeURIComponent(pdfKey)}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.pdf_url) {
+          setPdfUrl(data.pdf_url);
+        }
+      } else {
+        console.error('Failed to generate fresh PDF URL');
+      }
+    } catch (err) {
+      console.error('Error generating fresh PDF URL:', err);
+    } finally {
+      setPdfUrlLoading(false);
+    }
+  };
+
+  // Function to scroll to a specific page in the PDF
+  const scrollToPage = (pageNumber) => {
+    if (pdfContainerRef.current && pagePositions[pageNumber - 1] !== undefined) {
+      pdfContainerRef.current.scrollTo({
+        top: pagePositions[pageNumber - 1],
+        behavior: 'smooth'
+      });
+    }
+  };
+
+  // Function to handle card click and scroll to relevant page
+  const handleCardClick = (attrKey) => {
+    if (numPages === 0) return;
+    
+    // Enhanced logic: you can customize this based on your needs
+    // Option 1: Scroll to a specific page based on attribute key
+    // Option 2: Scroll to a page based on extracted data content
+    // Option 3: Scroll to a random page (current implementation)
+    
+    // For now, using a hash-based approach to get consistent page for same attribute
+    const hash = attrKey.split('').reduce((a, b) => {
+      a = ((a << 5) - a) + b.charCodeAt(0);
+      return a & a;
+    }, 0);
+    const targetPage = Math.abs(hash) % numPages + 1;
+    
+    console.log(`Scrolling to page ${targetPage} for attribute: ${attrKey}`);
+    scrollToPage(targetPage);
+    
+    // You can enhance this by:
+    // 1. Storing page information in your extracted data
+    // 2. Using text analysis to find relevant pages
+    // 3. Creating a mapping between attributes and pages
+  };
 
   useEffect(() => {
     if (!isResizing) return;
@@ -123,6 +219,81 @@ export default function SideBySide() {
       window.removeEventListener('touchend', handleUp);
     };
   }, [isResizing]);
+
+  // Create object URL from file if needed
+  useEffect(() => {
+    if (pdfFile && !pdfUrl) {
+      const objectUrl = URL.createObjectURL(pdfFile);
+      setPdfUrl(objectUrl);
+      
+      // Cleanup function to revoke URL only when component unmounts
+      return () => {
+        URL.revokeObjectURL(objectUrl);
+      };
+    }
+  }, [pdfFile, pdfUrl]);
+
+  // Calculate page positions when PDF loads
+  useEffect(() => {
+    if (numPages > 0 && pdfContainerRef.current) {
+      const container = pdfContainerRef.current;
+      const positions = [];
+      let currentTop = 0;
+      
+      // Estimate page heights (you can adjust these values)
+      const pageHeight = 1000; // Approximate height in pixels
+      const pageMargin = 24; // 24px margin between pages
+      
+      for (let i = 0; i < numPages; i++) {
+        positions.push(currentTop);
+        currentTop += pageHeight + pageMargin;
+      }
+      
+      setPagePositions(positions);
+    }
+  }, [numPages]);
+
+  // Add scroll listener to track current page
+  useEffect(() => {
+    const container = pdfContainerRef.current;
+    if (!container || numPages === 0) return;
+
+    const handleScroll = () => {
+      const scrollTop = container.scrollTop;
+      let currentPage = 1;
+      
+      for (let i = 0; i < pagePositions.length; i++) {
+        if (scrollTop >= pagePositions[i]) {
+          currentPage = i + 1;
+        } else {
+          break;
+        }
+      }
+      
+      setCurrentPage(currentPage);
+    };
+
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [pagePositions, numPages]);
+
+  // Update PDF width when left panel width changes or window resizes
+  useEffect(() => {
+    const updatePdfWidth = () => {
+      const newWidth = Math.min(
+        Math.max(700, (100 - leftWidthPct) * 0.9 * window.innerWidth / 100),
+        1200
+      );
+      setPdfWidth(newWidth);
+    };
+
+    // Update immediately
+    updatePdfWidth();
+
+    // Add window resize listener
+    window.addEventListener('resize', updatePdfWidth);
+    return () => window.removeEventListener('resize', updatePdfWidth);
+  }, [leftWidthPct]);
 
   const handleDragEnd = (event) => {
     const { active, over } = event;
@@ -304,22 +475,89 @@ export default function SideBySide() {
     setAttributesOrder((prev) => [...prev, name]);
   };
 
+   const handleActionMenuOpen = (event, attrKey, rowIdx) => {
+    setActionMenuAnchor(event.currentTarget);
+    setActiveRow({ attrKey, rowIdx });
+  };
+
+  const handleActionMenuClose = () => {
+    setActionMenuAnchor(null);
+    setActiveRow(null);
+  };
+
+  const handleActionMenuAction = (action) => {
+    if (!activeRow) return;
+    
+    const { attrKey, rowIdx } = activeRow;
+    
+    if (action === 'add') {
+      handleAddRow(attrKey);
+    } else if (action === 'delete') {
+      handleRemoveRow(attrKey, rowIdx);
+    }
+    
+    handleActionMenuClose();
+  };
+
   const handleSaveAll = async () => {
     try {
       setSaving(true);
+      
+      // First, save the PDF and extracted data to S3 if we have a PDF file
+      let finalPdfKey = s3PdfKey;
+      
+      if (pdfFile && !s3PdfKey) {
+        // Convert PDF file to base64
+        const arrayBuffer = await pdfFile.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        const binary = bytes.reduce((data, byte) => data + String.fromCharCode(byte), '');
+        const pdfBase64 = 'data:application/pdf;base64,' + btoa(binary);
+        
+        const dataToSave = {
+          metadata: {
+            extractedAt: new Date().toISOString(),
+            source: sourceFilename || 'Unknown PDF',
+            configuration: 'Edited via SideBySide',
+            totalRows: Array.isArray(extractedData) ? extractedData.length : 1
+          },
+          extractedData: extractedData,
+          pdf_file: pdfBase64
+        };
+        
+        const saveResponse = await fetch(`${API_BASE_URL}/save-tables`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(dataToSave),
+        });
+        
+        if (!saveResponse.ok) {
+          throw new Error(await saveResponse.text());
+        }
+        
+        const saveResult = await saveResponse.json();
+        finalPdfKey = saveResult?.s3_keys?.pdf_file || null;
+        
+        // Update local state with the new S3 key for future reference
+        setS3PdfKey(finalPdfKey);
+      }
+      
+      // Now save the final edited data to the database
       const payload = {
-        filename: 'Edited via SideBySide',
-        pdf_key: s3PdfKey || null,
+        filename: sourceFilename || 'Edited via SideBySide',
+        pdf_key: finalPdfKey || null,
         extracted_json: extractedData,
       };
+      
       const res = await fetch(`${API_BASE_URL}/finalize-extracted-details`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+      
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'Failed to save');
-      setSaveMsg('Saved successfully');
+      
+      setSaveMsg('Saved successfully to S3 and database');
     } catch (e) {
       setSaveMsg(`Save failed: ${e.message}`);
     } finally {
@@ -339,12 +577,30 @@ export default function SideBySide() {
     <Box ref={containerRef} sx={{ height: '100vh', width: '100vw', overflow: 'hidden', userSelect: isResizing ? 'none' : 'auto' }}>
       <Box sx={{ display: 'flex', height: '100%' }}>
         {/* Left: Cards */}
-        <Box sx={{ width: `${leftWidthPct}%`, overflowY: 'auto', p: 2, boxSizing: 'border-box' }}>
+        <Box sx={{ 
+          width: `${leftWidthPct}%`, 
+          overflowY: 'auto', 
+          p: 2, 
+          boxSizing: 'border-box',
+          '&::-webkit-scrollbar': {
+            width: '0px',
+            background: 'transparent'
+          },
+          scrollbarWidth: 'none',
+          msOverflowStyle: 'none'
+        }}>
           <Box sx={{ p: 1 }}>
-        <Button variant="outlined" onClick={() => navigate('/upload-markdown')} startIcon={<ArrowBackIcon />}>Back</Button>
-      </Box>
-          <Typography variant="h6" sx={{ mb: 2 }}>Extracted Attributes</Typography>
-          {/* Add Card moved to bottom sticky bar */}
+            <Button variant="outlined" onClick={() => navigate('/upload-markdown')} startIcon={<ArrowBackIcon />}>Back</Button>
+          </Box>
+          <Typography variant="h6" sx={{ mb: 2, color: '#000', textAlign: 'center' }}>
+            Extracted Attributes
+            {isViewingSavedTable && (
+              <Typography variant="caption" display="block" sx={{ color: 'text.secondary', mt: 1 }}>
+                Viewing saved table
+              </Typography>
+            )}
+          </Typography>
+          
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={attributesOrder} strategy={verticalListSortingStrategy}>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -353,19 +609,35 @@ export default function SideBySide() {
                   return (
                     <SortableAttributeCard key={attrKey} attributeKey={attrKey}>
                       {({ listeners }) => (
-                        <Card sx={{ p: 1, width: '100%' }}>
+                        <Card 
+                          sx={{ 
+                            p: 1, 
+                            width: '100%',
+                            cursor: 'pointer',
+                            '&:hover': {
+                              boxShadow: 3,
+                              backgroundColor: 'rgba(0, 0, 0, 0.02)'
+                            }
+                          }}
+                          onClick={() => handleCardClick(attrKey)}
+                        >
                           <CardContent>
                             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                              <Typography 
+                                variant="subtitle1" 
+                                sx={{ fontWeight: 600 }}
+                              >
                                 {attrKey}
                               </Typography>
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <Button startIcon={<AddIcon />} size="small" onClick={() => handleAddColumn(attrKey)}>
-                                  Add Column
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  onClick={() => handleCardClick(attrKey)}
+                                  sx={{ fontSize: '0.75rem', minWidth: 'auto', px: 1 }}
+                                >
+                                  View in PDF
                                 </Button>
-                                <IconButton size="small" {...listeners} aria-label="drag">
-                                  <DragIndicatorIcon fontSize="small" />
-                                </IconButton>
                                 <IconButton size="small" color="error" onClick={() => {
                                   const updated = { ...(extractedData || {}) };
                                   delete updated[attrKey];
@@ -376,6 +648,13 @@ export default function SideBySide() {
                                 </IconButton>
                               </Box>
                             </Box>
+                            
+                            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1, mb: 1 }}>
+                              <IconButton size="large" {...listeners} aria-label="drag">
+                                <DragIndicatorIcon fontSize="large" />
+                              </IconButton>
+                            </Box>
+                            
                             <TableContainer component={Paper}>
                               <Table size="small">
                                 <TableHead>
@@ -415,8 +694,12 @@ export default function SideBySide() {
                                         </TableCell>
                                       ))}
                                       <TableCell align="center">
-                                        <IconButton color="error" onClick={() => handleRemoveRow(attrKey, rowIdx)} aria-label={`delete row ${rowIdx + 1}`}>
-                                          <DeleteIcon />
+                                        <IconButton 
+                                          size="small"
+                                          onClick={(event) => handleActionMenuOpen(event, attrKey, rowIdx)}
+                                          aria-label={`actions for row ${rowIdx + 1}`}
+                                        >
+                                          <MoreVertIcon />
                                         </IconButton>
                                       </TableCell>
                                     </TableRow>
@@ -424,9 +707,10 @@ export default function SideBySide() {
                                 </TableBody>
                               </Table>
                             </TableContainer>
-                            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>
-                              <Button startIcon={<AddIcon />} size="small" onClick={() => handleAddRow(attrKey)}>
-                                Add Row
+                            
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1, alignItems: 'center' }}>
+                              <Button startIcon={<AddIcon />} size="small" onClick={() => handleAddColumn(attrKey)}>
+                                Add Column
                               </Button>
                             </Box>
                           </CardContent>
@@ -438,7 +722,8 @@ export default function SideBySide() {
               </Box>
             </SortableContext>
           </DndContext>
-          <Box sx={{  bottom: 0, pt: 2, pb: 2 }}>
+          
+          <Box sx={{ bottom: 0, pt: 2, pb: 2 }}>
             <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mb: 1 }}>
               <Button variant="outlined" startIcon={<AddIcon />} onClick={handleAddCard}>Add Card</Button>
             </Box>
@@ -452,23 +737,91 @@ export default function SideBySide() {
         <Box
           onMouseDown={() => setIsResizing(true)}
           onTouchStart={() => setIsResizing(true)}
-          sx={{ width: '6px', cursor: 'col-resize', backgroundColor: isResizing ? '#ccc' : '#eee', '&:hover': { backgroundColor: '#ddd' } }}
+          sx={{ width: '10px', cursor: 'col-resize', backgroundColor: isResizing ? '#ccc' : '#eee', '&:hover': { backgroundColor: '#ddd' } }}
         />
 
-        {/* Right: PDF via iframe */}
-        <Box sx={{ width: `${100 - leftWidthPct}%`, overflow: 'hidden', p: 2 }}>
-          <Typography variant="h6" sx={{ mb: 2 }}>PDF Preview</Typography>
-          {pdfUrl ? (
-            <iframe
-              title="pdf-preview"
-              src={pdfUrl}
-              style={{ width: '100%', height: 'calc(100% - 40px)', border: 'none', pointerEvents: isResizing ? 'none' : 'auto' }}
-            />
+        {/* Right: PDF via react-pdf */}
+        <Box 
+          ref={pdfContainerRef}
+          sx={{ 
+            width: `${100 - leftWidthPct}%`, 
+            overflow: 'auto', 
+            p: 2,
+            '& .react-pdf__Page__canvas': {
+              marginTop: '20px',
+              display: 'block',
+              imageRendering: 'high-quality',
+
+            },
+
+          }}
+        >
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h6" sx={{ color: '#000' }}>PDF Preview</Typography>
+                         {numPages > 0 && (
+               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                 <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                   Page {currentPage} of {numPages}
+                 </Typography>
+                 <Typography variant="caption" sx={{ color: 'text.secondary', ml: 1 }}>
+                   Width: {Math.round(pdfWidth)}px
+                 </Typography>
+               </Box>
+             )}
+          </Box>
+          {pdfUrlLoading ? (
+            <Typography variant="body1" sx={{ color: 'black' }}>Loading PDF...</Typography>
+          ) : pdfUrl ? (
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <Document 
+                file={pdfUrl} 
+                onLoadSuccess={({ numPages }) => setNumPages(numPages)}
+                loading={<Typography variant="body1" sx={{ color: 'black' }}>Loading PDF...</Typography>}
+                error={<Typography variant="body1" color="error">Failed to load PDF</Typography>}
+              >
+                {numPages > 0 && Array.apply(null, { length: numPages }).map((_, index) => (
+                  <Box key={`page_${index + 1}`} sx={{ mb: 3 }}>
+                                         <Page 
+                       pageNumber={index + 1} 
+                       width={pdfWidth} // Responsive width from state
+                       loading={<Typography variant="body1" sx={{ color: 'black' }}>Loading page...</Typography>}
+                       renderTextLayer={true} // Enable text layer for better quality
+                       renderAnnotationLayer={true} // Enable annotation layer
+                     />
+                  </Box>
+                ))}
+              </Document>
+            </Box>
           ) : (
             <Typography variant="body1">No PDF URL found. Save to S3 from Upload Markdown first.</Typography>
           )}
         </Box>
       </Box>
+      
+      {/* Action Menu Dropdown */}
+      <Menu
+        anchorEl={actionMenuAnchor}
+        open={Boolean(actionMenuAnchor)}
+        onClose={handleActionMenuClose}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'right',
+        }}
+        transformOrigin={{
+          vertical: 'top',
+          horizontal: 'right',
+        }}
+      >
+        <MenuItem onClick={() => handleActionMenuAction('add')}>
+          <AddIcon sx={{ mr: 1 }} fontSize="small" />
+          Add Row
+        </MenuItem>
+        <MenuItem onClick={() => handleActionMenuAction('delete')}>
+          <DeleteIcon sx={{ mr: 1 }} fontSize="small" />
+          Delete Row
+        </MenuItem>
+      </Menu>
+      
       <Snackbar open={!!saveMsg} autoHideDuration={3000} onClose={() => setSaveMsg(null)}>
         <Alert onClose={() => setSaveMsg(null)} severity={saveMsg?.startsWith('Save failed') ? 'error' : 'success'} sx={{ width: '100%' }}>
           {saveMsg}

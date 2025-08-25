@@ -17,9 +17,8 @@ import IconButton from '@mui/material/IconButton';
 import TextField from '@mui/material/TextField';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
-import EditIcon from '@mui/icons-material/Edit';
-import SaveIcon from '@mui/icons-material/Save';
-import CancelIcon from '@mui/icons-material/Cancel';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import Menu from '@mui/material/Menu';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import pdf2md from '@opendocsg/pdf2md';
 import FormControl from '@mui/material/FormControl';
@@ -46,23 +45,13 @@ function DocumentUploadMarkdown() {
   const [extractedData, setExtractedData] = useState(null);
   const [jsonLoading, setJsonLoading] = useState(false);
   const [jsonError, setJsonError] = useState(null);
-  const [editingCell, setEditingCell] = useState(null);
-  const [editValue, setEditValue] = useState('');
+  const [actionMenuAnchor, setActionMenuAnchor] = useState(null);
+  const [activeRow, setActiveRow] = useState(null);
+  const open = Boolean(actionMenuAnchor);
+  const [selectedActionIndex, setSelectedActionIndex] = useState(0);
   const [attributesOrder, setAttributesOrder] = useState([]);
-  const [pdfPresignedUrl, setPdfPresignedUrl] = useState(null);
-  const [s3PdfKey, setS3PdfKey] = useState(null);
   const navigate = useNavigate();
 
-  const ITEM_HEIGHT = 48;
-const ITEM_PADDING_TOP = 8;
-const MenuProps = {
-  PaperProps: {
-    style: {
-      maxHeight: ITEM_HEIGHT * 4.5 + ITEM_PADDING_TOP,
-      width: 250,
-    },
-  },
-};
 
   // DnD sensors
   const sensors = useSensors(
@@ -176,28 +165,9 @@ const MenuProps = {
     } else {
       setAttributesOrder([]);
     }
+    
+    // Don't reset menu state here - let it persist naturally
   }, [extractedData]);
-
-  // Helper function to get all unique keys from extracted data
-  const getAllKeys = (data) => {
-    if (!data || typeof data !== 'object') return [];
-    
-    const allKeys = new Set();
-    
-    if (Array.isArray(data)) {
-      // If data is an array, get keys from all objects
-      data.forEach(item => {
-        if (item && typeof item === 'object') {
-          Object.keys(item).forEach(key => allKeys.add(key));
-        }
-      });
-    } else {
-      // If data is a single object, get its keys
-      Object.keys(data).forEach(key => allKeys.add(key));
-    }
-    
-    return Array.from(allKeys).sort();
-  };
 
   // Normalize any value (string/object/array) into an array of column strings
   const normalizeValueToColumns = (value) => {
@@ -225,149 +195,44 @@ const MenuProps = {
       .filter((v) => v.length > 0 || v === "");
   };
 
-  // Helper function to normalize data for table display
-  const normalizeDataForTable = (data) => {
-    if (!data) return [];
-    
-    if (Array.isArray(data)) {
-      return data;
-    } else if (typeof data === 'object') {
-      // Convert single object to array with one item
-      return [data];
-    } else {
-      // If it's a primitive value, wrap it in an object
-      return [{ value: data }];
-    }
-  };
 
-  // Edit functions
-  const startEditing = (rowIndex, columnKey, currentValue) => {
-    setEditingCell({ rowIndex, columnKey });
-    setEditValue(currentValue || '');
-  };
+  // const saveDataToJson = () => {
+  //   if (!extractedData) return;
+    
+  //   // Create a timestamp for the filename
+  //   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  //   const filename = `extracted_data_${timestamp}.json`;
+    
+  //   // Create the data object with metadata
+  //   const dataToSave = {
+  //     metadata: {
+  //       extractedAt: new Date().toISOString(),
+  //       source: file?.name || 'Unknown PDF',
+  //       configuration: selectedConfigData?.name || 'Unknown Config',
+  //       totalRows: Array.isArray(extractedData) ? extractedData.length : 1
+  //     },
+  //     extractedData: extractedData
+  //   };
+    
+  //   // Convert to JSON string with pretty formatting
+  //   const jsonString = JSON.stringify(dataToSave, null, 2);
+    
+  //   // Create and download the file
+  //   const blob = new Blob([jsonString], { type: 'application/json' });
+  //   const url = URL.createObjectURL(blob);
+  //   const link = document.createElement('a');
+  //   link.href = url;
+  //   link.download = filename;
+  //   document.body.appendChild(link);
+  //   link.click();
+  //   document.body.removeChild(link);
+  //   URL.revokeObjectURL(url);
+    
+  //   // Optional: Show success message
+  //   alert(`Data saved successfully as ${filename}`);
+  // };
 
-  const saveEdit = () => {
-    if (editingCell && extractedData) {
-      const { rowIndex, columnKey } = editingCell;
-      const updatedData = [...extractedData];
-      
-      if (updatedData[rowIndex]) {
-        updatedData[rowIndex] = { ...updatedData[rowIndex], [columnKey]: editValue };
-        setExtractedData(updatedData);
-      }
-      
-      setEditingCell(null);
-      setEditValue('');
-    }
-  };
 
-  const cancelEdit = () => {
-    setEditingCell(null);
-    setEditValue('');
-  };
-
-  const addRow = () => {
-    if (!extractedData) return;
-    
-    const updatedData = [...extractedData];
-    const allKeys = getAllKeys(updatedData);
-    
-    const newRow = {};
-    allKeys.forEach(key => {
-      newRow[key] = '';
-    });
-    
-    updatedData.push(newRow);
-    setExtractedData(updatedData);
-  };
-
-  const deleteRow = (rowIndex) => {
-    if (!extractedData) return;
-    
-    const updatedData = [...extractedData];
-    updatedData.splice(rowIndex, 1);
-    setExtractedData(updatedData);
-  };
-
-  const saveDataToJson = () => {
-    if (!extractedData) return;
-    
-    // Create a timestamp for the filename
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const filename = `extracted_data_${timestamp}.json`;
-    
-    // Create the data object with metadata
-    const dataToSave = {
-      metadata: {
-        extractedAt: new Date().toISOString(),
-        source: file?.name || 'Unknown PDF',
-        configuration: selectedConfigData?.name || 'Unknown Config',
-        totalRows: Array.isArray(extractedData) ? extractedData.length : 1
-      },
-      extractedData: extractedData
-    };
-    
-    // Convert to JSON string with pretty formatting
-    const jsonString = JSON.stringify(dataToSave, null, 2);
-    
-    // Create and download the file
-    const blob = new Blob([jsonString], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    
-    // Optional: Show success message
-    alert(`Data saved successfully as ${filename}`);
-  };
-
-  const saveDataToBackend = async () => {
-    if (!extractedData) return;
-    
-    try {
-      // Convert PDF file to base64
-      let pdfBase64 = null;
-      if (file) {
-        const arrayBuffer = await file.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuffer);
-        const binary = bytes.reduce((data, byte) => data + String.fromCharCode(byte), '');
-        pdfBase64 = 'data:application/pdf;base64,' + btoa(binary);
-      }
-      
-      const dataToSave = {
-        metadata: {
-          extractedAt: new Date().toISOString(),
-          source: file?.name || 'Unknown PDF',
-          configuration: selectedConfigData?.name || 'Unknown Config',
-          totalRows: Array.isArray(extractedData) ? extractedData.length : 1
-        },
-        extractedData: extractedData,
-        pdf_file: pdfBase64
-      };
-      
-      const response = await fetch(`${API_BASE_URL}/save-tables`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(dataToSave),
-      });
-      
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-      
-      const result = await response.json();
-      alert(`Data and PDF saved to S3 successfully!\nJSON: ${result.s3_keys.tables_json}\nPDF: ${result.s3_keys.pdf_file}`);
-      setPdfPresignedUrl(result?.s3_urls?.pdf_file_url || null);
-      setS3PdfKey(result?.s3_keys?.pdf_file || null);
- 
-    } catch (err) {
-      alert(`Error saving to S3: ${err.message}`);
-    }
-  };
 
   // Per-attribute card helpers (matrix-based: rows x columns)
   const stringifyCell = (v) => (v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
@@ -500,6 +365,31 @@ const MenuProps = {
     }
   };
 
+    const handleActionMenuOpen = (event, attrKey, rowIdx) => {
+    // Ensure we have a valid DOM element
+      setActionMenuAnchor(event.currentTarget);
+      setActiveRow({ attrKey, rowIdx });
+    
+  };
+   
+  const handleActionMenuClose = () => {
+    setActionMenuAnchor(null);
+    setActiveRow(null);
+  };
+
+  const handleActionMenuAction = (action) => {
+    if (!activeRow) return;
+    
+    const { attrKey, rowIdx } = activeRow;
+    
+    if (action === 'add') {
+      handleAddRow(attrKey);
+    } else if (action === 'delete') {
+      handleRemoveRow(attrKey, rowIdx);
+    }
+    
+    handleActionMenuClose();
+  };
 
   const handleDragEnd = (event) => {
     const { active, over } = event;
@@ -508,14 +398,6 @@ const MenuProps = {
     const newIndex = attributesOrder.indexOf(over.id);
     if (oldIndex === -1 || newIndex === -1) return;
     setAttributesOrder((items) => arrayMove(items, oldIndex, newIndex));
-  };
-
-  const deleteAttributeRow = (attributeKey) => {
-    if (!extractedData) return;
-    const updated = { ...extractedData };
-    delete updated[attributeKey];
-    setExtractedData(updated);
-    setAttributesOrder((prev) => prev.filter((k) => k !== attributeKey));
   };
 
   // Sortable card wrapper
@@ -537,8 +419,7 @@ const MenuProps = {
     <MainLayout>
       <Box sx={{ 
         width: '100%', 
-        display: 'flex', 
-        flexDirection: 'column', 
+
         alignItems: 'center',
         textAlign: 'center'
       }}>
@@ -552,59 +433,22 @@ const MenuProps = {
           maxWidth: '100%',
           display: 'flex',
           flexDirection: 'column',
-          alignItems: 'stretch'
         }}>
-          <FormControl fullWidth sx={{ width: '100%', minWidth: '100%' }}>
-            <InputLabel>Select Configuration</InputLabel>
-            <Select
-              value={selectedConfig}
-              label="Select Configuration"
-              onChange={(e) => setSelectedConfig(e.target.value)}
-              disabled={configsLoading}
-              variant="standard"
-              MenuProps={{
-                PaperProps: {
-                  style: {
-                    maxHeight: ITEM_HEIGHT * 4.5 + ITEM_PADDING_TOP,
-                    width: '100%',
-                    minWidth: '100%'
-                  },
-                },
-              }}
-                             sx={{
-                 backgroundColor: 'white',
-                 width: '100%',
-                 minWidth: '100%',
-                 '& .MuiSelect-select': {
-                   width: '100%',
-                   minWidth: '100%'
-                 },
-                 '& .MuiInputBase-root': {
-                   width: '100%',
-                   minWidth: '100%'
-                 },
-                 '& .MuiInputBase-input': {
-                   width: '100%',
-                   minWidth: '100%'
-                 },
-                 '& .MuiInput-input': {
-                   width: '100%',
-                   minWidth: '100%'
-                 },
-                 '& .css-unhb03-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiInput-input': {
-                   width: '100%',
-                   minWidth: '100%'
-                 }
-               }}
-            >
-
-            {configs.map((config) => (
-              <MenuItem key={config.id} value={config.id}>
-                {config.name}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+          <FormControl fullWidth variant="outlined" disabled={configsLoading}>
+  <InputLabel>Select Configuration</InputLabel>
+  <Select
+    value={selectedConfig}
+    onChange={(e) => setSelectedConfig(e.target.value)}
+    fullWidth
+    variant="outlined"
+  >
+    {configs.map((config) => (
+      <MenuItem key={config.id} value={config.id}>
+        {config.name}
+      </MenuItem>
+    ))}
+  </Select>
+</FormControl>
         </Box>
         
         {configsError && (
@@ -615,12 +459,12 @@ const MenuProps = {
 
         {/* Show selected configuration details */}
         
-        {selectedConfigData && (
-          <Card sx={{ mt: 2, mb: 2, alignSelf: 'flex-start' }}>
-            <CardContent>
-              <Typography variant="h6"  gutterBottom>
-                Configuration: {selectedConfigData.name}
-              </Typography>
+                 {selectedConfigData && (
+           <Card sx={{ mt: 2, mb: 2, width: '100%' }}>
+             <CardContent>
+               <Typography variant="h6"  gutterBottom>
+                 Configuration: {selectedConfigData.name}
+               </Typography>
               
               {/* Configuration attributes table (replaces raw JSON) */}
               {Array.isArray(selectedConfigData.template_json?.attributes) && selectedConfigData.template_json.attributes.length > 0 && (
@@ -628,24 +472,24 @@ const MenuProps = {
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                     <strong>Configuration Attributes</strong>
                   </Typography>
-                  <TableContainer component={Paper} sx={{ overflowX: 'auto', backgroundColor: '#f7f5f1' }}>
-                    <Table size="small" sx={{ tableLayout: 'fixed', width: '100%', minWidth: 600 }}>
-                      <TableHead>
-                        <TableRow>
-                          <TableCell sx={{ fontWeight: 'bold', width: '35%' }}>Attribute Name</TableCell>
-                          <TableCell sx={{ fontWeight: 'bold' }}>Query</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {selectedConfigData.template_json.attributes.map((attr, idx) => (
-                          <TableRow key={idx}>
-                            <TableCell sx={{ wordBreak: 'break-word' }}>{attr?.name || ''}</TableCell>
-                            <TableCell sx={{ wordBreak: 'break-word' }}>{attr?.query || ''}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
+                                     <TableContainer component={Paper} sx={{ overflowX: 'auto', backgroundColor: '#f7f5f1' }}>
+                     <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
+                       <TableHead>
+                         <TableRow>
+                           <TableCell sx={{ fontWeight: 'bold', width: '35%' }}>Attribute Name</TableCell>
+                           <TableCell sx={{ fontWeight: 'bold' }}>Query</TableCell>
+                         </TableRow>
+                       </TableHead>
+                       <TableBody>
+                         {selectedConfigData.template_json.attributes.map((attr, idx) => (
+                           <TableRow key={idx}>
+                             <TableCell sx={{ wordBreak: 'break-word' }}>{attr?.name || ''}</TableCell>
+                             <TableCell sx={{ wordBreak: 'break-word' }}>{attr?.query || ''}</TableCell>
+                           </TableRow>
+                         ))}
+                       </TableBody>
+                     </Table>
+                   </TableContainer>
                 </Box>
               )}
               
@@ -674,7 +518,7 @@ const MenuProps = {
           type="file"
           accept="application/pdf"
           onChange={onFileChange}
-          style={{ marginBottom: 16 }}
+          style={{ marginBottom: 16, color:'black' }}
           disabled={loadingExtract || jsonLoading}
         />
             </div>
@@ -710,118 +554,90 @@ const MenuProps = {
              </Typography>
            </Box>
             
-            {/* JSON Display
-            <Card sx={{ mt: 2, p: 2, maxWidth: '800px' }}>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  OpenAI Extraction Result
-                </Typography>
-              
-                  <pre style={{ 
-                 background: '#f7f7f7', 
-                 padding: 8, 
-                 borderRadius: 4, 
-                 overflowX: 'auto',
-                 fontSize: '0.75rem',
-                 lineHeight: '1.2',
-                 maxHeight: '200px',
-                 overflowY: 'auto'
-              }}>
-                    {JSON.stringify(extractedData, null, 2)}
-                  </pre>
-                
-                
-                <Box sx={{ mt: 2 }}>
-                  <Typography variant="body2" color="text.secondary">
-                    <strong>Extracted {Object.keys(extractedData).length} field(s):</strong> {Object.keys(extractedData).join(', ')}
-                      </Typography>
-                    </Box>
-              </CardContent>
-            </Card> */}
-            
             {/* Table Display of Extracted Data */}
-            <Card sx={{ mt: 2, maxWidth: '800px', width: '100%' }}>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Extracted Data Table
-                </Typography>
-                   <TableContainer component={Paper} sx={{ overflowX: 'auto', width: '100%' }}>
-                     <Table size="small"  style={{ tableLayout: 'fixed', width: '100%', minWidth: 700 }}>
-                       <TableHead>
-                         <TableRow>
-                        <TableCell sx={{ 
-                          fontWeight: 'bold',
-                          backgroundColor: '#f5f5f5',
-                          minWidth: 150
-                        }}>
-                          Field Name
-                        </TableCell>
-                         {(() => {
-                           // Compute max columns across normalized values
-                           const maxColumns = Math.max(
-                             ...Object.values(extractedData).map((value) => normalizeValueToColumns(value).length)
-                           );
-                           return Array.from({ length: maxColumns }, (_, index) => (
-                             <TableCell
-                               key={index}
-                               sx={{
-                                 fontWeight: 'bold',
-                                 backgroundColor: '#f5f5f5',
-                                 textAlign: 'center',
-                                 minWidth: 120,
-                               }}
-                             >
-                               Value {index + 1}
-                             </TableCell>
-                           ));
-                         })()}
-                          </TableRow>
-                        </TableHead>
-                                              <TableBody>
-                      {Object.entries(extractedData).map(([key, value], rowIdx) => {
-                        const values = normalizeValueToColumns(value);
-                        
-                        return (
-                             <TableRow key={rowIdx}>
-                            <TableCell sx={{ 
-                                   fontWeight: 'bold',
-                                   backgroundColor: '#f0f0f0',
-                              minWidth: 150
-                            }}>
-                              {key}
-                               </TableCell>
-                            {(() => {
-                              const maxColumns = Math.max(
-                                ...Object.values(extractedData).map((v) => normalizeValueToColumns(v).length)
-                              );
+              <Card sx={{ mt: 2, width: '100%' }}>
+               <CardContent>
+                 <Typography variant="h6" gutterBottom>
+                   Extracted Data Table
+                 </Typography>
+                  <TableContainer component={Paper} sx={{  backgroundColor: '#f7f5f1', borderRadius:'20px' }}>
+                        <Table  sx={{ tableLayout: 'fixed' }}>
+                          <TableHead sx={{ overflowX:'auto' }}>
+                            <TableRow>
+                              <TableCell sx={{ 
+                                fontWeight: 'bold',
+                                backgroundColor: '#f5f5f5',
+                                width:'50%'
+                              }}>
+                                Field Name
+                              </TableCell>
+                              {(() => {
+                                // Compute max columns across normalized values
+                                const maxColumns = Math.max(
+                                  ...Object.values(extractedData).map((value) => normalizeValueToColumns(value).length)
+                                );
+                                return Array.from({ length: maxColumns }, (_, index) => (
+                                  <TableCell
+                                    key={index}
+                                    sx={{
+                                      fontWeight: 'bold',
+                                      backgroundColor: '#f5f5f5',
+                                      textAlign: 'center',
+                                      width: '50%',
+                                    
+                                    }}
+                                  >
+                                    Value {index + 1}
+                                  </TableCell>
+                                ));
+                              })()}
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {Object.entries(extractedData).map(([key, value], rowIdx) => {
+                              const values = normalizeValueToColumns(value);
                               
-                              // Generate cells for this row
-                              return Array.from({ length: maxColumns }, (_, colIdx) => (
-                                   <TableCell 
-                                     key={colIdx}
-                                     sx={{ 
-                                    textAlign: 'center',
-                                    minWidth: 120,
-                                    wordBreak: 'break-word'
-                                  }}
-                                >
-                                  {values[colIdx] ?? ''}
-                                   </TableCell>
-                              ));
-                            })()}
-                          </TableRow>
-                                 );
-                               })}
-                        </TableBody>
-                     </Table>
-                   </TableContainer>
+                              return (
+                                <TableRow key={rowIdx}>
+                                  <TableCell sx={{ 
+                                    fontWeight: 'bold',
+                                    backgroundColor: '#f0f0f0',
+                                    overflowX:'auto',
+                                    width:'50%'
+                                  }}>
+                                    {key}
+                                  </TableCell>
+                                  {(() => {
+                                    const maxColumns = Math.max(
+                                      ...Object.values(extractedData).map((v) => normalizeValueToColumns(v).length)
+                                    );
+                                    
+                                    // Generate cells for this row
+                                    return Array.from({ length: maxColumns }, (_, colIdx) => (
+                                      <TableCell 
+                                        key={colIdx}
+                                        sx={{ 
+                                          textAlign: 'center',
+                                          wordBreak: 'break-word'
+                                        }}
+                                      >
+                                        {values[colIdx] ?? ''}
+                                      </TableCell>
+                                    ));
+                                  })()}
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
               </CardContent>
             </Card>
 
             {/* Draggable per-attribute cards */}
             {extractedData && typeof extractedData === 'object' && !Array.isArray(extractedData) && (
               <Box sx={{ mt: 3 }}>
-                <Typography variant="h6" gutterBottom>
+                <Typography variant="h6" color="black" gutterBottom>
                   Attribute Cards (Draggable, Inline Editable)
                 </Typography>
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -832,23 +648,30 @@ const MenuProps = {
                         return (
                           <SortableAttributeCard key={attrKey} attributeKey={attrKey}>
                             {({ listeners }) => (
-                              <Card sx={{ p: 1, width: '100%', maxWidth: '800px' }}>
-                                <CardContent>
-                                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                                    <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                                      {attrKey}
-                                    </Typography>
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                      <Button startIcon={<AddIcon />} size="small" onClick={() => handleAddColumn(attrKey)}>
-                                        Add Column
-                                      </Button>
-                                      <IconButton size="small" {...listeners} aria-label="drag">
-                                        <DragIndicatorIcon fontSize="small" />
-                                      </IconButton>
-                                    </Box>
-                                  </Box>
-                                  <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
-                                    <Table size="small">
+                                <Card sx={{ p: 1, width: '100%' }}>
+                                 <CardContent>
+                                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                                     <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                                       {attrKey}
+                                     </Typography>
+                                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                       <IconButton size="small" color="error" onClick={() => {
+                                         const updated = { ...(extractedData || {}) };
+                                         delete updated[attrKey];
+                                         setExtractedData(updated);
+                                         setAttributesOrder((prev) => prev.filter((k) => k !== attrKey));
+                                       }} aria-label={`delete card ${attrKey}`}>
+                                         <DeleteIcon fontSize="small" />
+                                       </IconButton>
+                                     </Box>
+                                   </Box>
+                                   <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1, mb: 1 }}>
+                                     <IconButton size="large" {...listeners} aria-label="drag">
+                                       <DragIndicatorIcon fontSize="large" />
+                                     </IconButton>
+                                   </Box>
+                                  <TableContainer component={Paper} sx={{ overflowX: 'auto', width: '100%' }}>
+                                    <Table sx={{ tableLayout: 'fixed', width: '100%' }}>
                                       <TableHead>
                                         <TableRow>
                                           {columns.map((hdr, idx) => (
@@ -873,35 +696,54 @@ const MenuProps = {
                                         </TableRow>
                                       </TableHead>
                                       <TableBody>
-                                        {rows.map((row, rowIdx) => {
-                                          return (
-                                            <TableRow key={rowIdx}>
-                                              {row.map((val, colIdx) => (
-                                                <TableCell key={colIdx} align="center">
-                                                  <TextField
-                                                    value={val}
-                                                    onChange={(e) => handleCellChange(attrKey, rowIdx, colIdx, e.target.value)}
-                                                    variant="standard"
-                                                    fullWidth
-                                                  />
-                                                </TableCell>
-                                              ))}
-                                              <TableCell align="center">
-                                                <IconButton color="error" onClick={() => handleRemoveRow(attrKey, rowIdx)} aria-label={`delete row ${rowIdx + 1}`}>
-                                                  <DeleteIcon />
-                                                </IconButton>
+                                        {rows.map((row, rowIdx) => (
+                                          <TableRow key={rowIdx}>
+                                            {row.map((val, colIdx) => (
+                                              <TableCell key={colIdx} align="center">
+                                                <TextField
+                                                  value={val}
+                                                  onChange={(e) => handleCellChange(attrKey, rowIdx, colIdx, e.target.value)}
+                                                  variant="standard"
+                                                  fullWidth
+                                                />
                                               </TableCell>
-                                            </TableRow>
-                                          );
-                                        })}
+                                            ))}
+                                            <TableCell align="center">
+                                              <IconButton 
+                                                size="small"
+                                                onClick={(event) => handleActionMenuOpen(event, attrKey, rowIdx)}
+                                                aria-label={`actions for row ${rowIdx + 1}`}
+                                              >
+                                                <MoreVertIcon />
+                                              </IconButton>
+                                            </TableCell>
+                                          </TableRow>
+                                        ))}
                                       </TableBody>
                                     </Table>
                                   </TableContainer>
-                                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>
-                                    <Button startIcon={<AddIcon />} size="small" onClick={() => handleAddRow(attrKey)}>
-                                      Add Row
-                                    </Button>
-                                  </Box>
+
+                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1, alignItems: 'center' }}>
+                                       {/* <Button 
+                                         variant="outlined" 
+                                         size="small" 
+                                         onClick={() => {
+                                           // For DocumentUploadMarkdown, we'll show a message since PDF isn't displayed here
+                                           alert(`This would locate "${attrKey}" content in the PDF. Use the "Open Side-by-Side" button to access this feature.`);
+                                         }}
+                                         sx={{ 
+                                           fontSize: '0.75rem',
+                                           minWidth: 'auto',
+                                           px: 1
+                                         }}
+                                         title="This feature is available in Side-by-Side view"
+                                       >
+                                         📍 Locate in PDF
+                                       </Button> */}
+                                       <Button startIcon={<AddIcon />} size="small" onClick={() => handleAddColumn(attrKey)}>
+                                         Add Column
+                                       </Button>
+                                     </Box>
                                 </CardContent>
                               </Card>
                             )}
@@ -914,34 +756,51 @@ const MenuProps = {
               </Box>
             )}
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 2, justifyContent: 'flex-start' }}>
-               {/* <Button
-                 variant="outlined"
-                 color="primary"
-                  onClick={saveDataToJson}
-                 startIcon={<SaveIcon />}
-               >
-                 Download JSON
-               </Button> */}
-                 <Button
-                   variant="contained"
-                   color="primary"
-                   onClick={saveDataToBackend}
-                   startIcon={<SaveIcon />}
-                 >
-                   Save to S3
-                 </Button>
-                 <Button
-                   variant="contained"
-                   color="secondary"
-                   disabled={!pdfPresignedUrl || !extractedData}
-                   onClick={() => navigate('/side-by-side', { state: { pdfUrl: pdfPresignedUrl, extractedData, s3PdfKey } })}
-                 >
-                   Open Side-by-Side
-                 </Button>
-              </Box>
+              <Button
+                variant="contained"
+                color="secondary"
+                disabled={!file || !extractedData}
+                onClick={() => {
+                  navigate('/side-by-side', { 
+                    state: { 
+                      extractedData, 
+                      pdfFile: file,
+                      sourceFilename: file.name 
+                    } 
+                  });
+                }}
+              >
+                Open Side-by-Side
+              </Button>
+            </Box>
           </Box>
-          )}
-        </Box>
+        )}
+      </Box>
+      
+                           {/* Action Menu - positioned at the end of the component */}
+          <Menu
+            id="action-menu"
+            anchorEl={actionMenuAnchor}
+            open={Boolean(actionMenuAnchor)}
+            onClose={handleActionMenuClose}
+            anchorOrigin={{
+             vertical: 'bottom',
+             horizontal: 'right',
+           }}
+            transformOrigin={{
+             vertical: 'top',
+             horizontal: 'right',
+           }}
+          >
+            <MenuItem onClick={() => handleActionMenuAction('add')}>
+           <AddIcon sx={{ mr: 1 }} fontSize="small" />
+           Add Row
+         </MenuItem>
+         <MenuItem onClick={() => handleActionMenuAction('delete')}>
+           <DeleteIcon sx={{ mr: 1 }} fontSize="small" />
+           Delete Row
+         </MenuItem>
+          </Menu>
     </MainLayout>
   );
 }

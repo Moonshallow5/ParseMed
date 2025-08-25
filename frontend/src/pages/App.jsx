@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { API_BASE_URL } from '../config'
 import MainLayout from '../components/MainLayout'
 import Table from '@mui/material/Table'
@@ -19,6 +20,14 @@ import DialogActions from '@mui/material/DialogActions'
 import Typography from '@mui/material/Typography'
 import CircularProgress from '@mui/material/CircularProgress'
 import Alert from '@mui/material/Alert'
+import IconButton from '@mui/material/IconButton'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
+import ListItemIcon from '@mui/material/ListItemIcon'
+import Cloud from '@mui/icons-material/Cloud'
+import Visibility from '@mui/icons-material/Visibility'
+import ListItemText from '@mui/material/ListItemText'
 
 function App() {
   const [tables, setTables] = useState([])
@@ -26,6 +35,9 @@ function App() {
   const [error, setError] = useState(null)
   const [selectedTable, setSelectedTable] = useState(null)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const navigate = useNavigate()
+  const [actionMenuAnchor, setActionMenuAnchor] = useState(null)
+  const [activeTable, setActiveTable] = useState(null)
 
   const handleLogout = () => {
     // Add logout logic here
@@ -62,6 +74,52 @@ function App() {
     setSelectedTable(table)
     setDialogOpen(true)
   }
+
+  // Handle viewing table in side-by-side view
+  const handleViewInSideBySide = (table) => {
+    try {
+      // Parse the extracted JSON data
+      const extractedData = JSON.parse(table.extracted_json);
+      
+      // Navigate to side-by-side with the data
+      navigate('/side-by-side', {
+        state: {
+          extractedData,
+          sourceFilename: table.filename,
+          s3PdfKey: table.filepath, // This is the S3 key, not a presigned URL
+          isFromSavedTable: true // Flag to indicate this is from a saved table
+        }
+      });
+    } catch (err) {
+      console.error('Error parsing table data:', err);
+      alert('Error loading table data for side-by-side view');
+    }
+  }
+
+  // Handle opening the actions menu
+  const handleActionMenuOpen = (event, table) => {
+    setActionMenuAnchor(event.currentTarget);
+    setActiveTable(table);
+  };
+
+  // Handle closing the actions menu
+  const handleActionMenuClose = () => {
+    setActionMenuAnchor(null);
+    setActiveTable(null);
+  };
+
+  // Handle menu item selection
+  const handleMenuAction = (action) => {
+    if (!activeTable) return;
+    
+    if (action === 'view') {
+      handleViewTable(activeTable);
+    } else if (action === 'sideBySide') {
+      handleViewInSideBySide(activeTable);
+    }
+    
+    handleActionMenuClose();
+  };
 
   // Format date
   const formatDate = (dateString) => {
@@ -186,14 +244,13 @@ function App() {
                 <TableCell>{table.filepath}</TableCell>
                 <TableCell>{formatDate(table.created_at)}</TableCell>
                 <TableCell align="center">
-                  <Button
-                    variant="contained"
+                  <IconButton
                     size="small"
-                    style={{ textTransform: 'none' }}
-                    onClick={() => handleViewTable(table)}
+                    onClick={(event) => handleActionMenuOpen(event, table)}
+                    aria-label="actions"
                   >
-                    View Tables
-                  </Button>
+                    <MoreVertIcon />
+                  </IconButton>
                 </TableCell>
               </TableRow>
             ))}
@@ -220,9 +277,30 @@ function App() {
         <DialogActions>
           <Button onClick={() => setDialogOpen(false)}>Close</Button>
         </DialogActions>
-      </Dialog>
-    </MainLayout>
-  )
-}
+              </Dialog>
+        
+        {/* Actions Menu */}
+        <Menu
+          anchorEl={actionMenuAnchor}
+          open={Boolean(actionMenuAnchor)}
+          onClose={handleActionMenuClose}
+          
+        >
+          <MenuItem onClick={() => handleMenuAction('view')}>
+          <ListItemIcon>
+            <Visibility fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>View Tables</ListItemText>
+          </MenuItem>
+          <MenuItem onClick={() => handleMenuAction('sideBySide')}>
+          <ListItemIcon>
+            <Cloud fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Side-by-Side</ListItemText>
+          </MenuItem>
+        </Menu>
+      </MainLayout>
+    )
+  }
 
 export default App
