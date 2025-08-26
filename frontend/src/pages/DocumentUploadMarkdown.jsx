@@ -87,12 +87,11 @@ function DocumentUploadMarkdown() {
 
   // Reset file and related state when config changes
   useEffect(() => {
-    // Clean up previous PDF URL if it exists
-    if (pdfUrl) {
+    // Clean up previous PDF URL if it exists (only blob URLs)
+    if (pdfUrl && pdfUrl.startsWith('blob:')) {
       URL.revokeObjectURL(pdfUrl);
     }
     
-    setFile(null);
     setMarkdown(null);
     setPdfUrl(null);
     setExtractedData(null);
@@ -106,13 +105,13 @@ function DocumentUploadMarkdown() {
     } else {
       setSelectedConfigData(null);
     }
-  }, [selectedConfig, configs, pdfUrl]);
+  }, [selectedConfig, configs]);
 
   // Cleanup blob URLs when component unmounts
   useEffect(() => {
     return () => {
-      // Clean up any blob URLs when component unmounts
-      if (pdfUrl) {
+      // Only cleanup blob URLs, not base64 URLs
+      if (pdfUrl && pdfUrl.startsWith('blob:')) {
         URL.revokeObjectURL(pdfUrl);
       }
     };
@@ -121,6 +120,12 @@ function DocumentUploadMarkdown() {
   const onFileChange = async (event) => {
     const selectedFile = event.target.files[0];
     if (selectedFile) {
+      // Validate file type
+      if (selectedFile.type !== 'application/pdf') {
+        setExtractError('Please select a valid PDF file');
+        return;
+      }
+      
       setFile(selectedFile);
       setMarkdown(null);
       setExtractedData(null);
@@ -128,9 +133,29 @@ function DocumentUploadMarkdown() {
       setJsonError(null);
       setLoadingExtract(true);
       
-      // Create blob URL for the PDF file
-      const objectUrl = URL.createObjectURL(selectedFile);
-      setPdfUrl(objectUrl);
+      // Convert file to base64 instead of creating blob URL
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = reader.result; // This is the base64 string
+        console.log('PDF converted to base64, length:', base64.length);
+        console.log('Base64 starts with:', base64.substring(0, 50));
+        
+        // Validate base64 format
+        if (base64.startsWith('data:application/pdf;base64,')) {
+          const base64Data = base64.split(',')[1];
+          if (base64Data && base64Data.length > 100) {
+            setPdfUrl(base64);
+            console.log('Base64 PDF URL set successfully');
+          } else {
+            console.error('Invalid base64 PDF data length');
+            setExtractError('Failed to convert PDF to base64');
+          }
+        } else {
+          console.error('Invalid base64 format');
+          setExtractError('Failed to convert PDF to base64');
+        }
+      };
+      reader.readAsDataURL(selectedFile);
       
       try {
         // Read the PDF as ArrayBuffer
@@ -553,6 +578,11 @@ function DocumentUploadMarkdown() {
 
         {loadingExtract && <Typography sx={{ mt: 2 }}>Extracting Markdown from PDF...</Typography>}
         {extractError && <Typography color="error" sx={{ mt: 2 }}>{extractError}</Typography>}
+        {pdfUrl && pdfUrl.startsWith('data:application/pdf;base64,') && (
+          <Typography color="success.main" sx={{ mt: 2 }}>
+            ✓ PDF successfully converted to base64 format
+          </Typography>
+        )}
         
                  {markdown && (
                           <Button
@@ -779,8 +809,10 @@ function DocumentUploadMarkdown() {
               <Button
                 variant="contained"
                 color="secondary"
-                disabled={!file || !extractedData}
+                disabled={!file || !extractedData || !pdfUrl || !pdfUrl.startsWith('data:application/pdf;base64,')}
                 onClick={() => {
+                  console.log('Navigating to SideBySide with pdfUrl type:', typeof pdfUrl);
+                  console.log('pdfUrl starts with:', pdfUrl ? pdfUrl.substring(0, 50) : 'null');
                   navigate('/side-by-side', { 
                     state: { 
                       extractedData, 
@@ -792,6 +824,11 @@ function DocumentUploadMarkdown() {
               >
                 Open Side-by-Side
               </Button>
+              {(!pdfUrl || !pdfUrl.startsWith('data:application/pdf;base64,')) && (
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                  PDF must be uploaded and converted to base64 before opening Side-by-Side view
+                </Typography>
+              )}
             </Box>
           </Box>
         )}

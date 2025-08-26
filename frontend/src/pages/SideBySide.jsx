@@ -122,11 +122,28 @@ export default function SideBySide() {
           setAttributesOrder(Object.keys(navData));
         }
         if (navPdfUrl) {
-          setPdfUrl(navPdfUrl);
-          // If we have a blob URL from navigation, we don't need to create a new one
-          setPdfFile(null); // Clear the file since we have the URL
-        } else if (navPdfFile) {
-          setPdfFile(navPdfFile);
+          // Check if it's a base64 data URL
+          if (navPdfUrl.startsWith('data:application/pdf;base64,')) {
+            console.log('Setting base64 PDF URL from navigation');
+            // Validate base64 format
+            const base64Data = navPdfUrl.split(',')[1];
+            if (base64Data && base64Data.length > 100) { // Basic validation
+              setPdfUrl(navPdfUrl);
+              setPdfFile(null);
+            } else {
+              console.error('Invalid base64 PDF data');
+            }
+          } else if (navPdfUrl.startsWith('blob:')) {
+            // Handle blob URLs (fallback)
+            console.log('Setting blob PDF URL from navigation');
+            setPdfUrl(navPdfUrl);
+            setPdfFile(null);
+          } else {
+            // Handle other URL types (like S3 presigned URLs)
+            console.log('Setting other PDF URL from navigation:', navPdfUrl.substring(0, 50) + '...');
+            setPdfUrl(navPdfUrl);
+            setPdfFile(null);
+          }
         }
         if (navSourceFilename) setSourceFilename(navSourceFilename);
         if (navPdfKey) setS3PdfKey(navPdfKey);
@@ -236,7 +253,8 @@ export default function SideBySide() {
   // Cleanup PDF URL when component unmounts
   useEffect(() => {
     return () => {
-      // Only cleanup if we created the URL here (not if it came from navigation)
+      // Only cleanup blob URLs that we created here
+      // Don't cleanup base64 URLs as they don't need cleanup
       if (pdfFile && pdfUrl && pdfUrl.startsWith('blob:')) {
         URL.revokeObjectURL(pdfUrl);
       }
@@ -304,6 +322,20 @@ export default function SideBySide() {
     window.addEventListener('resize', updatePdfWidth);
     return () => window.removeEventListener('resize', updatePdfWidth);
   }, [leftWidthPct]);
+
+  // Debug: Monitor pdfUrl changes
+  useEffect(() => {
+    if (pdfUrl) {
+      console.log('pdfUrl state updated:', {
+        type: pdfUrl.startsWith('data:application/pdf;base64,') ? 'Base64' : 
+              pdfUrl.startsWith('blob:') ? 'Blob' : 'URL',
+        length: pdfUrl.length,
+        startsWith: pdfUrl.substring(0, 50)
+      });
+    } else {
+      console.log('pdfUrl state cleared');
+    }
+  }, [pdfUrl]);
 
   const handleDragEnd = (event) => {
     const { active, over } = event;
@@ -768,16 +800,24 @@ export default function SideBySide() {
         >
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Typography variant="h6" sx={{ color: '#000' }}>PDF Preview</Typography>
-                         {numPages > 0 && (
-               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                 <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                   Page {currentPage} of {numPages}
-                 </Typography>
-                 <Typography variant="caption" sx={{ color: 'text.secondary', ml: 1 }}>
-                   Width: {Math.round(pdfWidth)}px
-                 </Typography>
-               </Box>
-             )}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              {pdfUrl && (
+                <Typography variant="caption" sx={{ color: 'text.secondary', mr: 2 }}>
+                  Type: {pdfUrl.startsWith('data:application/pdf;base64,') ? 'Base64' : 
+                         pdfUrl.startsWith('blob:') ? 'Blob' : 'URL'}
+                </Typography>
+              )}
+              {numPages > 0 && (
+                <>
+                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                    Page {currentPage} of {numPages}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', ml: 1 }}>
+                    Width: {Math.round(pdfWidth)}px
+                  </Typography>
+                </>
+              )}
+            </Box>
           </Box>
           {pdfUrlLoading ? (
             <Typography variant="body1" sx={{ color: 'black' }}>Loading PDF...</Typography>
@@ -785,7 +825,13 @@ export default function SideBySide() {
             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <Document 
                 file={pdfUrl} 
-                onLoadSuccess={({ numPages }) => setNumPages(numPages)}
+                onLoadSuccess={({ numPages }) => {
+                  console.log('PDF loaded successfully with', numPages, 'pages');
+                  setNumPages(numPages);
+                }}
+                onLoadError={(error) => {
+                  console.error('PDF load error:', error);
+                }}
                 loading={<Typography variant="body1" sx={{ color: 'black' }}>Loading PDF...</Typography>}
                 error={<Typography variant="body1" color="error">Failed to load PDF</Typography>}
               >
