@@ -87,7 +87,6 @@ export default function SideBySide() {
   const [attributesOrder, setAttributesOrder] = useState([]);
   const [extractedData, setExtractedData] = useState(null);
   const [pdfUrl, setPdfUrl] = useState(null);
-  const [pdfFile, setPdfFile] = useState(null);
   const [sourceFilename, setSourceFilename] = useState(null);
   const [s3PdfKey, setS3PdfKey] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -99,11 +98,70 @@ export default function SideBySide() {
   const [activeRow, setActiveRow] = useState(null);
   const [numPages, setNumPages] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
-  const [pdfUrlLoading, setPdfUrlLoading] = useState(false);
+
   const [isViewingSavedTable, setIsViewingSavedTable] = useState(false);
   const pdfContainerRef = useRef(null);
   const [pagePositions, setPagePositions] = useState([]);
   const [pdfWidth, setPdfWidth] = useState(800);
+  const [pdfLoading, setPdfLoading] = useState(false);
+
+  // Function to fetch PDF from backend and get base64
+  const fetchPdfAsBase64 = async (s3Key) => {
+    try {
+      // Get presigned URL from backend
+      const response = await fetch(`${API_BASE_URL}/get-pdf-base64?pdf_key=${encodeURIComponent(s3Key)}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to get PDF URL from backend');
+      }
+      
+      const data = await response.json();
+      if (!data.success || !data.pdf_url) {
+        throw new Error(data.error || 'No PDF URL received');
+      }
+      
+      console.log('Got presigned URL, fetching PDF...');
+      
+      // Fetch the PDF using the presigned URL
+      const pdfResponse = await fetch(data.pdf_url);
+      if (!pdfResponse.ok) {
+        throw new Error('Failed to fetch PDF from S3');
+      }
+      
+      // Convert to base64 using FileReader (same method as DocumentUploadMarkdown)
+      const blob = await pdfResponse.blob();
+      
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = reader.result; // This is the base64 string
+          console.log('PDF converted to base64, length:', base64.length);
+          console.log('Base64 starts with:', base64.substring(0, 50));
+          
+          // Validate base64 format
+          if (base64.startsWith('data:application/pdf;base64,')) {
+            const base64Data = base64.split(',')[1];
+            if (base64Data && base64Data.length > 100) {
+              console.log('Base64 PDF URL set successfully');
+              resolve(base64);
+            } else {
+              console.error('Invalid base64 PDF data length');
+              reject(new Error('Invalid base64 PDF data'));
+            }
+          } else {
+            console.error('Invalid base64 format');
+            reject(new Error('Invalid base64 format'));
+          }
+        };
+        reader.onerror = () => reject(new Error('Failed to read PDF file'));
+        reader.readAsDataURL(blob);
+      });
+      
+    } catch (error) {
+      console.error('Error fetching PDF as base64:', error);
+      return null;
+    }
+  };
 
   useEffect(() => {
     try {
@@ -112,14 +170,36 @@ export default function SideBySide() {
           pdfUrl: navPdfUrl, 
           extractedData: navData, 
           s3PdfKey: navPdfKey,
-          pdfFile: navPdfFile,
           sourceFilename: navSourceFilename,
           isFromSavedTable: navIsFromSavedTable
         } = location.state || {};
         
         if (navData && typeof navData === 'object' && !Array.isArray(navData)) {
           setExtractedData(navData);
-          setAttributesOrder(Object.keys(navData));
+          
+          // Check if this is from an extreme configuration (has category separators)
+          const isExtremeConfig = Object.keys(navData).some(key => 
+            key.startsWith('--- ') && key.endsWith(' ---')
+          );
+          
+          if (isExtremeConfig) {
+            // For extreme configurations, organize by categories
+            const categories = [];
+            let currentCategory = null;
+            
+            Object.entries(navData).forEach(([key, value]) => {
+              if (key.startsWith('--- ') && key.endsWith(' ---')) {
+                // This is a category separator
+                currentCategory = key.replace('--- ', '').replace(' ---', '');
+                categories.push(currentCategory);
+              }
+            });
+            
+            setAttributesOrder(categories);
+          } else {
+            // Regular configuration - use all keys
+            setAttributesOrder(Object.keys(navData));
+          }
         }
         if (navPdfUrl) {
           // Check if it's a base64 data URL
@@ -129,7 +209,6 @@ export default function SideBySide() {
             const base64Data = navPdfUrl.split(',')[1];
             if (base64Data && base64Data.length > 100) { // Basic validation
               setPdfUrl(navPdfUrl);
-              setPdfFile(null);
             } else {
               console.error('Invalid base64 PDF data');
             }
@@ -137,21 +216,36 @@ export default function SideBySide() {
             // Handle blob URLs (fallback)
             console.log('Setting blob PDF URL from navigation');
             setPdfUrl(navPdfUrl);
-            setPdfFile(null);
           } else {
             // Handle other URL types (like S3 presigned URLs)
             console.log('Setting other PDF URL from navigation:', navPdfUrl.substring(0, 50) + '...');
             setPdfUrl(navPdfUrl);
-            setPdfFile(null);
           }
         }
         if (navSourceFilename) setSourceFilename(navSourceFilename);
         if (navPdfKey) setS3PdfKey(navPdfKey);
         
-        // If coming from a saved table, we need to generate a fresh presigned URL
-        if (navIsFromSavedTable && navPdfKey) {
+        // If coming from a saved table, mark it as such
+        if (navIsFromSavedTable) {
           setIsViewingSavedTable(true);
-          generateFreshPdfUrl(navPdfKey);
+        }
+        
+        // If we have s3PdfKey but no pdfUrl, load the PDF
+        if (navPdfKey && !navPdfUrl) {
+          console.log('Loading PDF from S3 key:', navPdfKey);
+          setPdfLoading(true);
+          fetchPdfAsBase64(navPdfKey).then((base64Data) => {
+            if (base64Data) {
+              setPdfUrl(base64Data);
+              console.log('PDF loaded successfully from S3');
+            } else {
+              console.error('Failed to load PDF from S3');
+            }
+            setPdfLoading(false);
+          }).catch((error) => {
+            console.error('Error loading PDF from S3:', error);
+            setPdfLoading(false);
+          });
         }
         
         return;
@@ -159,26 +253,7 @@ export default function SideBySide() {
     } catch (_) {}
   }, [location]);
 
-  // Function to generate fresh presigned URL for PDF
-  const generateFreshPdfUrl = async (pdfKey) => {
-    try {
-      setPdfUrlLoading(true);
-      const response = await fetch(`${API_BASE_URL}/get-pdf-url?pdf_key=${encodeURIComponent(pdfKey)}`);
-      
-      if (response.ok) {
-        const data = await response.json();
-        if (data.pdf_url) {
-          setPdfUrl(data.pdf_url);
-        }
-      } else {
-        console.error('Failed to generate fresh PDF URL');
-      }
-    } catch (err) {
-      console.error('Error generating fresh PDF URL:', err);
-    } finally {
-      setPdfUrlLoading(false);
-    }
-  };
+
 
   // Function to scroll to a specific page in the PDF
   const scrollToPage = (pageNumber) => {
@@ -229,37 +304,48 @@ export default function SideBySide() {
         setLeftWidthPct(clamped);
       } catch {}
     };
-    const handleUp = () => setIsResizing(false);
+    
+    const handleUp = () => {
+      console.log('Resizing stopped');
+      setIsResizing(false);
+    };
+    
+    // Add a timeout to automatically stop resizing if no events are received
+    const autoStopTimer = setTimeout(() => {
+      console.log('Auto-stopping resizing due to timeout');
+      setIsResizing(false);
+    }, 5000); // 5 second timeout
+    
     window.addEventListener('mousemove', handleMove);
     window.addEventListener('mouseup', handleUp);
     window.addEventListener('touchmove', handleMove, { passive: false });
     window.addEventListener('touchend', handleUp);
+    
+    // Also listen for mouse leave to handle edge cases
+    window.addEventListener('mouseleave', handleUp);
+    
     return () => {
+      clearTimeout(autoStopTimer);
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
       window.removeEventListener('touchmove', handleMove);
       window.removeEventListener('touchend', handleUp);
+      window.removeEventListener('mouseleave', handleUp);
     };
   }, [isResizing]);
 
-  // Create object URL from file if needed
-  useEffect(() => {
-    if (pdfFile && !pdfUrl) {
-      const objectUrl = URL.createObjectURL(pdfFile);
-      setPdfUrl(objectUrl);
-    }
-  }, [pdfFile, pdfUrl]);
+
 
   // Cleanup PDF URL when component unmounts
   useEffect(() => {
     return () => {
       // Only cleanup blob URLs that we created here
       // Don't cleanup base64 URLs as they don't need cleanup
-      if (pdfFile && pdfUrl && pdfUrl.startsWith('blob:')) {
+      if (pdfUrl && pdfUrl.startsWith('blob:')) {
         URL.revokeObjectURL(pdfUrl);
       }
     };
-  }, [pdfFile, pdfUrl]);
+  }, [pdfUrl]);
 
   // Calculate page positions when PDF loads
   useEffect(() => {
@@ -305,23 +391,23 @@ export default function SideBySide() {
     return () => container.removeEventListener('scroll', handleScroll);
   }, [pagePositions, numPages]);
 
-  // Update PDF width when left panel width changes or window resizes
+
+
+  // Update PDF width when resizing stops to get final position
   useEffect(() => {
-    const updatePdfWidth = () => {
-      const newWidth = Math.min(
-        Math.max(700, (100 - leftWidthPct) * 0.9 * window.innerWidth / 100),
-        1200
-      );
-      setPdfWidth(newWidth);
-    };
-
-    // Update immediately
-    updatePdfWidth();
-
-    // Add window resize listener
-    window.addEventListener('resize', updatePdfWidth);
-    return () => window.removeEventListener('resize', updatePdfWidth);
-  }, [leftWidthPct]);
+    if (!isResizing) {
+      // Add a small delay to ensure resizing is completely finished
+      const timer = setTimeout(() => {
+        const newWidth = Math.min(
+          Math.max(700, (100 - leftWidthPct) * 0.9 * window.innerWidth / 100),
+          1200
+        );
+        setPdfWidth(newWidth);
+      }, 100); // 100ms delay
+      
+      return () => clearTimeout(timer);
+    }
+  }, [isResizing, leftWidthPct]);
 
   // Debug: Monitor pdfUrl changes
   useEffect(() => {
@@ -506,15 +592,59 @@ export default function SideBySide() {
 
   const handleAddCard = () => {
     const updated = { ...(extractedData || {}) };
-    let base = 'new_attribute';
-    let name = base;
-    let idx = 1;
-    while (updated[name] !== undefined) {
-      name = `${base}_${idx++}`;
+    
+    // Check if this is an extreme configuration
+    const isExtremeConfig = Object.keys(extractedData).some(key => 
+      key.startsWith('--- ') && key.endsWith(' ---')
+    );
+    
+    if (isExtremeConfig) {
+      // For extreme configurations, add a new category card
+      let base = 'New Category';
+      let categoryName = base;
+      let idx = 1;
+      while (updated[`--- ${categoryName} ---`] !== undefined) {
+        categoryName = `${base} ${idx++}`;
+      }
+      
+      // Add the category separator
+      updated[`--- ${categoryName} ---`] = `Category: ${categoryName}`;
+      
+      // Add a default attribute to the new category
+      let attrBase = 'new_attribute';
+      let attrName = attrBase;
+      let attrIdx = 1;
+      while (updated[attrName] !== undefined) {
+        attrName = `${attrBase}_${attrIdx++}`;
+      }
+      updated[attrName] = '';
+      
+      setExtractedData(updated);
+      
+      // Update attributesOrder to include the new category
+      const newCategories = [];
+      let currentCategory = null;
+      
+      Object.entries(updated).forEach(([key, value]) => {
+        if (key.startsWith('--- ') && key.endsWith(' ---')) {
+          currentCategory = key.replace('--- ', '').replace(' ---', '');
+          newCategories.push(currentCategory);
+        }
+      });
+      
+      setAttributesOrder(newCategories);
+    } else {
+      // Regular configuration - add new attribute card
+      let base = 'new_attribute';
+      let name = base;
+      let idx = 1;
+      while (updated[name] !== undefined) {
+        name = `${base}_${idx++}`;
+      }
+      updated[name] = {};
+      setExtractedData(updated);
+      setAttributesOrder((prev) => [...prev, name]);
     }
-    updated[name] = {};
-    setExtractedData(updated);
-    setAttributesOrder((prev) => [...prev, name]);
   };
 
    const handleActionMenuOpen = (event, attrKey, rowIdx) => {
@@ -545,16 +675,11 @@ export default function SideBySide() {
     try {
       setSaving(true);
       
-      // First, save the PDF and extracted data to S3 if we have a PDF file
+      // First, save the PDF and extracted data to S3 if we have a PDF URL
       let finalPdfKey = s3PdfKey;
       
-      if (pdfFile && !s3PdfKey) {
-        // Convert PDF file to base64
-        const arrayBuffer = await pdfFile.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuffer);
-        const binary = bytes.reduce((data, byte) => data + String.fromCharCode(byte), '');
-        const pdfBase64 = 'data:application/pdf;base64,' + btoa(binary);
-        
+      if (pdfUrl && !s3PdfKey) {
+        // We already have the PDF in base64 format from the URL
         const dataToSave = {
           metadata: {
             extractedAt: new Date().toISOString(),
@@ -563,7 +688,7 @@ export default function SideBySide() {
             totalRows: Array.isArray(extractedData) ? extractedData.length : 1
           },
           extractedData: extractedData,
-          pdf_file: pdfBase64
+          pdf_file: pdfUrl // Use the existing base64 URL
         };
         
         const saveResponse = await fetch(`${API_BASE_URL}/save-tables`, {
@@ -641,125 +766,463 @@ export default function SideBySide() {
                 Viewing saved table
               </Typography>
             )}
+            {/* Check if this is from an extreme configuration */}
+            {extractedData && Object.keys(extractedData).some(key => 
+              key.includes('---') || key.includes('Category')
+            ) && (
+              <Typography variant="caption" display="block" sx={{ color: 'primary.main', mt: 1, fontWeight: 'bold' }}>
+                🔥 Extreme Configuration: Organized by categories
+              </Typography>
+            )}
           </Typography>
           
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={attributesOrder} strategy={verticalListSortingStrategy}>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {attributesOrder.map((attrKey) => {
-                  const { columns, rows, type } = deriveColumnsAndRowsForValue(extractedData?.[attrKey]);
-                  return (
-                    <SortableAttributeCard key={attrKey} attributeKey={attrKey}>
-                      {({ listeners }) => (
-                        <Card 
-                          sx={{ 
-                            p: 1, 
-                            width: '100%',
-                            cursor: 'pointer',
-                            '&:hover': {
-                              boxShadow: 3,
-                              backgroundColor: 'rgba(0, 0, 0, 0.02)'
-                            }
-                          }}
-                          onClick={() => handleCardClick(attrKey)}
-                        >
-                          <CardContent>
-                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                              <Typography 
-                                variant="subtitle1" 
-                                sx={{ fontWeight: 600 }}
-                              >
-                                {attrKey}
-                              </Typography>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <Button
+                  // Check if this is a category (for extreme configurations)
+                  const isExtremeConfig = Object.keys(extractedData).some(key => 
+                    key.startsWith('--- ') && key.endsWith(' ---')
+                  );
+                  
+                  if (isExtremeConfig) {
+                    // For extreme configurations, render category-based cards
+                    const categoryAttributes = [];
+                    let currentCategory = null;
+                    
+                    Object.entries(extractedData).forEach(([key, value]) => {
+                      if (key.startsWith('--- ') && key.endsWith(' ---')) {
+                        currentCategory = key.replace('--- ', '').replace(' ---', '');
+                      } else if (currentCategory === attrKey) {
+                        categoryAttributes.push({ key, value });
+                      }
+                    });
+                    
+                    return (
+                      <SortableAttributeCard key={attrKey} attributeKey={attrKey}>
+                        {({ listeners }) => (
+                          <Card 
+                            sx={{ 
+                              p: 1, 
+                              width: '100%',
+                              cursor: 'pointer',
+                              '&:hover': {
+                                boxShadow: 3,
+                                backgroundColor: 'rgba(0, 0, 0, 0.02)'
+                              }
+                            }}
+                            onClick={() => handleCardClick(attrKey)}
+                          >
+                            <CardContent>
+                              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                                <TextField
+                                  value={attrKey}
+                                  onChange={(e) => {
+                                    // For extreme configurations, rename the category
+                                    const isExtremeConfig = Object.keys(extractedData).some(key => 
+                                      key.startsWith('--- ') && key.endsWith(' ---')
+                                    );
+                                    
+                                    if (isExtremeConfig) {
+                                      const updated = { ...extractedData };
+                                      const oldSeparator = `--- ${attrKey} ---`;
+                                      const newSeparator = `--- ${e.target.value} ---`;
+                                      
+                                      // Update the separator
+                                      if (updated[oldSeparator] !== undefined) {
+                                        updated[newSeparator] = updated[oldSeparator];
+                                        delete updated[oldSeparator];
+                                      }
+                                      
+                                      setExtractedData(updated);
+                                      
+                                      // Update attributesOrder
+                                      const newCategories = [];
+                                      let currentCategory = null;
+                                      
+                                      Object.entries(updated).forEach(([key, value]) => {
+                                        if (key.startsWith('--- ') && key.endsWith(' ---')) {
+                                          currentCategory = key.replace('--- ', '').replace(' ---', '');
+                                          newCategories.push(currentCategory);
+                                        }
+                                      });
+                                      
+                                      setAttributesOrder(newCategories);
+                                    } else {
+                                      // For regular configurations, rename the attribute
+                                      const updated = { ...extractedData };
+                                      const oldValue = updated[attrKey];
+                                      delete updated[attrKey];
+                                      updated[e.target.value] = oldValue;
+                                      setExtractedData(updated);
+                                      setAttributesOrder((prev) => prev.map(item => item === attrKey ? e.target.value : item));
+                                    }
+                                  }}
+                                  variant="standard"
                                   size="small"
-                                  variant="outlined"
-                                  onClick={() => handleCardClick(attrKey)}
-                                  sx={{ fontSize: '0.75rem', minWidth: 'auto', px: 1 }}
-                                >
-                                  View in PDF
-                                </Button>
-                                <IconButton size="small" color="error" onClick={() => {
-                                  const updated = { ...(extractedData || {}) };
-                                  delete updated[attrKey];
-                                  setExtractedData(updated);
-                                  setAttributesOrder((prev) => prev.filter((k) => k !== attrKey));
-                                }} aria-label={`delete card ${attrKey}`}>
-                                  <DeleteIcon fontSize="small" />
+                                  inputProps={{ 
+                                    style: { 
+                                      fontWeight: 600, 
+                                      fontSize: '1.1rem',
+                                      textAlign: 'center'
+                                    } 
+                                  }}
+                                  sx={{ minWidth: '200px' }}
+                                />
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    onClick={() => handleCardClick(attrKey)}
+                                    sx={{ fontSize: '0.75rem', minWidth: 'auto', px: 1 }}
+                                  >
+                                    View in PDF
+                                  </Button>
+                                  <IconButton size="small" color="error" onClick={() => {
+                                    // Remove entire category and its attributes
+                                    const updated = { ...(extractedData || {}) };
+                                    const categorySeparator = `--- ${attrKey} ---`;
+                                    delete updated[categorySeparator];
+                                    
+                                    // Remove all attributes in this category
+                                    categoryAttributes.forEach(({ key }) => {
+                                      delete updated[key];
+                                    });
+                                    
+                                    setExtractedData(updated);
+                                    
+                                    // Update attributes order
+                                    const remainingCategories = [];
+                                    let currentCategory = null;
+                                    Object.entries(updated).forEach(([key, value]) => {
+                                      if (key.startsWith('--- ') && key.endsWith(' ---')) {
+                                        currentCategory = key.replace('--- ', '').replace(' ---', '');
+                                        remainingCategories.push(currentCategory);
+                                      }
+                                    });
+                                    setAttributesOrder(remainingCategories);
+                                  }} aria-label={`delete category ${attrKey}`}>
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                </Box>
+                              </Box>
+                              
+                              <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1, mb: 1 }}>
+                                <IconButton size="large" {...listeners} aria-label="drag">
+                                  <DragIndicatorIcon fontSize="large" />
                                 </IconButton>
                               </Box>
-                            </Box>
-                            
-                            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1, mb: 1 }}>
-                              <IconButton size="large" {...listeners} aria-label="drag">
-                                <DragIndicatorIcon fontSize="large" />
-                              </IconButton>
-                            </Box>
-                            
-                            <TableContainer component={Paper}>
-                              <Table size="small">
-                                <TableHead>
-                                  <TableRow>
-                                    {columns.map((hdr, idx) => (
-                                      <TableCell key={idx} align="center" sx={{ fontWeight: 'bold' }}>
-                                        {(type === 'object' || type === 'arrayOfObjects') ? (
-                                          <TextField
-                                            value={hdr}
-                                            onChange={(e) => handleHeaderRename(attrKey, idx, e.target.value)}
-                                            variant="standard"
-                                            size="small"
-                                            inputProps={{ style: { textAlign: 'center', fontWeight: 700 } }}
-                                          />
-                                        ) : (
-                                          {hdr}
-                                        )}
-                                        <IconButton size="small" onClick={() => handleRemoveColumn(attrKey, idx)} aria-label={`remove column ${idx + 1}`}>
-                                          <DeleteIcon fontSize="small" />
-                                        </IconButton>
-                                      </TableCell>
-                                    ))}
-                                    <TableCell align="center" sx={{ fontWeight: 'bold' }}>Actions</TableCell>
-                                  </TableRow>
-                                </TableHead>
-                                <TableBody>
-                                  {rows.map((row, rowIdx) => (
-                                    <TableRow key={rowIdx}>
-                                      {row.map((val, colIdx) => (
-                                        <TableCell key={colIdx} align="center">
-                                          <TextField
-                                            value={val}
-                                            onChange={(e) => handleCellChange(attrKey, rowIdx, colIdx, e.target.value)}
-                                            variant="standard"
-                                            fullWidth
-                                          />
-                                        </TableCell>
-                                      ))}
-                                      <TableCell align="center">
-                                        <IconButton 
-                                          size="small"
-                                          onClick={(event) => handleActionMenuOpen(event, attrKey, rowIdx)}
-                                          aria-label={`actions for row ${rowIdx + 1}`}
+                              
+                                                             {/* Render category attributes as a table */}
+                               <TableContainer component={Paper} sx={{ overflowX: 'auto', width: '100%' }}>
+                                 <Table sx={{ tableLayout: 'fixed', width: '100%' }}>
+                                   <TableHead>
+                                     <TableRow>
+                                       <TableCell sx={{ fontWeight: 'bold', width: '35%' }}>Attribute</TableCell>
+                                       <TableCell sx={{ fontWeight: 'bold', width: '50%' }}>Value</TableCell>
+                                       <TableCell sx={{ fontWeight: 'bold', width: '15%' }}>Action</TableCell>
+                                     </TableRow>
+                                   </TableHead>
+                                   <TableBody>
+                                     {categoryAttributes.map(({ key, value }, idx) => {
+                                       const values = String(value ?? '')
+                                         .split(';')
+                                         .map((v) => v.trim())
+                                         .filter((v) => v.length > 0 || v === "");
+                                       
+                                       return (
+                                         <TableRow key={idx}>
+                                           <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#f0f0f0' }}>
+                                             <TextField
+                                               value={key}
+                                               onChange={(e) => {
+                                                 // Rename the attribute key
+                                                 const updated = { ...extractedData };
+                                                 const oldValue = updated[key];
+                                                 delete updated[key];
+                                                 updated[e.target.value] = oldValue;
+                                                 setExtractedData(updated);
+                                               }}
+                                               variant="standard"
+                                               size="small"
+                                               inputProps={{ style: { fontWeight: 'bold' } }}
+                                             />
+                                           </TableCell>
+                                           <TableCell>
+                                             <TextField
+                                               value={values.join('; ')}
+                                               onChange={(e) => {
+                                                 const updated = { ...extractedData };
+                                                 updated[key] = e.target.value;
+                                                 setExtractedData(updated);
+                                               }}
+                                               variant="standard"
+                                               fullWidth
+                                               multiline
+                                             />
+                                           </TableCell>
+                                           <TableCell align="center">
+                                             <IconButton 
+                                               size="small" 
+                                               color="error" 
+                                               onClick={() => {
+                                                 // Remove this specific attribute from the category
+                                                 const updated = { ...extractedData };
+                                                 delete updated[key];
+                                                 setExtractedData(updated);
+                                               }} 
+                                               aria-label={`delete attribute ${key}`}
+                                             >
+                                               <DeleteIcon fontSize="small" />
+                                             </IconButton>
+                                           </TableCell>
+                                         </TableRow>
+                                       );
+                                     })}
+                                   </TableBody>
+                                 </Table>
+                               </TableContainer>
+                               
+                               {/* Add new attribute button for this category */}
+                               <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1, alignItems: 'center' }}>
+                                 <Button 
+                                   startIcon={<AddIcon />} 
+                                   size="small" 
+                                   onClick={() => {
+                                     // Add new attribute to this specific category
+                                     const updated = { ...extractedData };
+                                     let base = 'new_attribute';
+                                     let name = base;
+                                     let idx = 1;
+                                     while (updated[name] !== undefined) {
+                                       name = `${base}_${idx++}`;
+                                     }
+                                     
+                                     // For extreme configurations, we need to ensure the new attribute
+                                     // is associated with the current category
+                                     const categorySeparator = `--- ${attrKey} ---`;
+                                     console.log('Adding attribute to category:', attrKey);
+                                     console.log('Category separator:', categorySeparator);
+                                     
+                                     if (updated[categorySeparator] !== undefined) {
+                                       // Create a new object with proper ordering
+                                       const newData = {};
+                                       let foundCategory = false;
+                                       let categoryEnded = false;
+                                       let processedCategoryAttributes = 0;
+                                       
+                                       console.log('Original data keys:', Object.keys(updated));
+                                       
+                                       // Copy all existing data in order and add new attribute at the right place
+                                       Object.entries(updated).forEach(([key, value], index) => {
+                                         console.log(`Processing key: ${key}, index: ${index}, foundCategory: ${foundCategory}, categoryEnded: ${categoryEnded}`);
+                                         
+                                         // If we encounter the next category separator, mark that the current category has ended
+                                         if (key.startsWith('--- ') && key.endsWith(' ---') && key !== categorySeparator && foundCategory) {
+                                           categoryEnded = true;
+                                           console.log('Category ended because next separator found');
+                                         }
+                                         
+                                         // If we just found our category separator, mark that we found our category
+                                         if (key === categorySeparator) {
+                                           foundCategory = true;
+                                           console.log('Found our category separator');
+                                         }
+                                         
+                                         // If we're in our category and processing an attribute (not a separator), count it
+                                         if (foundCategory && !categoryEnded && !key.startsWith('--- ')) {
+                                           processedCategoryAttributes++;
+                                           console.log(`Processed ${processedCategoryAttributes} attributes in category`);
+                                         }
+                                         
+                                         // If we're in our category and haven't ended yet, and the next key is a category separator, add our new attribute
+                                         if (foundCategory && !categoryEnded) {
+                                           const originalKeys = Object.keys(updated);
+                                           const currentIndex = originalKeys.indexOf(key);
+                                           const nextKey = originalKeys[currentIndex + 1];
+                                           
+                                           console.log(`Checking if next key is separator. Current index: ${currentIndex}, Next key: ${nextKey}`);
+                                           
+                                           if (nextKey && nextKey.startsWith('--- ') && nextKey.endsWith(' ---')) {
+                                             // Next key is a category separator, so we're at the end of our category
+                                             console.log(`Adding new attribute at end of category after processing ${processedCategoryAttributes} attributes`);
+                                             newData[key] = value;
+                                             newData[name] = '';
+                                             categoryEnded = true;
+                                             return;
+                                           }
+                                         }
+                                         
+                                         newData[key] = value;
+                                       });
+                                       
+                                       // If we didn't add the attribute yet (category is the last one), add it at the very end
+                                       if (!newData[name]) {
+                                         console.log('Adding new attribute at very end (last category)');
+                                         newData[name] = '';
+                                       }
+                                       
+                                       console.log('Final newData keys:', Object.keys(newData));
+                                       setExtractedData(newData);
+                                     } else {
+                                       // Fallback for regular configurations
+                                       updated[name] = '';
+                                       setExtractedData(updated);
+                                     }
+                                   }}
+                                 >
+                                   Add Attribute
+                                 </Button>
+                               </Box>
+                            </CardContent>
+                          </Card>
+                        )}
+                      </SortableAttributeCard>
+                    );
+                  } else {
+                    // Regular configuration - render individual attribute cards
+                    const { columns, rows, type } = deriveColumnsAndRowsForValue(extractedData?.[attrKey]);
+                    return (
+                      <SortableAttributeCard key={attrKey} attributeKey={attrKey}>
+                        {({ listeners }) => (
+                          <Card 
+                            sx={{ 
+                              p: 1, 
+                              width: '100%',
+                              cursor: 'pointer',
+                              '&:hover': {
+                                boxShadow: 3,
+                                backgroundColor: 'rgba(0, 0, 0, 0.02)'
+                              }
+                            }}
+                            onClick={() => handleCardClick(attrKey)}
+                          >
+                            <CardContent>
+                              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                                <TextField
+                                  value={attrKey}
+                                  onChange={(e) => {
+                                    // For regular configurations, rename the attribute
+                                    const updated = { ...extractedData };
+                                    const oldValue = updated[attrKey];
+                                    delete updated[attrKey];
+                                    updated[e.target.value] = oldValue;
+                                    setExtractedData(updated);
+                                    setAttributesOrder((prev) => prev.map(item => item === attrKey ? e.target.value : item));
+                                  }}
+                                  variant="standard"
+                                  size="small"
+                                  inputProps={{ 
+                                    style: { 
+                                      fontWeight: 600, 
+                                      fontSize: '1.1rem',
+                                      textAlign: 'center'
+                                    } 
+                                  }}
+                                  sx={{ minWidth: '200px' }}
+                                />
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    onClick={() => handleCardClick(attrKey)}
+                                    sx={{ fontSize: '0.75rem', minWidth: 'auto', px: 1 }}
+                                  >
+                                    View in PDF
+                                  </Button>
+                                  <IconButton size="small" color="error" onClick={() => {
+                                    const updated = { ...(extractedData || {}) };
+                                    delete updated[attrKey];
+                                    setExtractedData(updated);
+                                    setAttributesOrder((prev) => prev.filter((k) => k !== attrKey));
+                                  }} aria-label={`delete card ${attrKey}`}>
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                </Box>
+                              </Box>
+                              
+                              <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1, mb: 1 }}>
+                                <IconButton size="large" {...listeners} aria-label="drag">
+                                  <DragIndicatorIcon fontSize="large" />
+                                </IconButton>
+                              </Box>
+                              
+                              <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
+                                <Table size="small" sx={{ tableLayout: 'auto' }}>
+                                  <TableBody>
+                                    {/* Each column becomes a row */}
+                                    {columns.map((columnName, colIdx) => (
+                                      <TableRow key={colIdx}>
+                                        {/* Column Name/Header */}
+                                        <TableCell 
+                                          align="center" 
+                                          sx={{ 
+                                            fontWeight: 'bold', 
+                                            backgroundColor: '#f5f5f5',
+                                            minWidth: '120px',
+                                            borderRight: '2px solid #e0e0e0'
+                                          }}
                                         >
-                                          <MoreVertIcon />
-                                        </IconButton>
-                                      </TableCell>
-                                    </TableRow>
-                                  ))}
-                                </TableBody>
-                              </Table>
-                            </TableContainer>
-                            
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1, alignItems: 'center' }}>
-                              <Button startIcon={<AddIcon />} size="small" onClick={() => handleAddColumn(attrKey)}>
-                                Add Column
-                              </Button>
-                            </Box>
-                          </CardContent>
-                        </Card>
-                      )}
-                    </SortableAttributeCard>
-                  );
+                                          {(type === 'object' || type === 'arrayOfObjects') ? (
+                                            <TextField
+                                              value={columnName}
+                                              onChange={(e) => handleHeaderRename(attrKey, colIdx, e.target.value)}
+                                              variant="standard"
+                                              size="small"
+                                              inputProps={{ style: { textAlign: 'center', fontWeight: 700 } }}
+                                            />
+                                          ) : (
+                                            columnName
+                                          )}
+                                        </TableCell>
+                                         
+                                        {/* Data Values for this column across all rows */}
+                                        {rows.map((row, rowIdx) => (
+                                          <TableCell 
+                                            key={rowIdx} 
+                                            align="center" 
+                                            sx={{ 
+                                              minWidth: '150px',
+                                              borderRight: '1px solid #e0e0e0'
+                                            }}
+                                          >
+                                            <TextField
+                                              value={row[colIdx] || ''}
+                                              onChange={(e) => handleCellChange(attrKey, rowIdx, colIdx, e.target.value)}
+                                              variant="standard"
+                                              fullWidth
+                                              size="small"
+                                            />
+                                          </TableCell>
+                                        ))}
+                                        
+                                        {/* Actions for this column */}
+                                        <TableCell align="center" sx={{ minWidth: '80px' }}>
+                                          <IconButton 
+                                            size="small" 
+                                            onClick={() => handleRemoveColumn(attrKey, colIdx)} 
+                                            aria-label={`remove column ${colIdx + 1}`}
+                                          >
+                                            <DeleteIcon fontSize="small" />
+                                          </IconButton>
+                                        </TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              </TableContainer>
+                              
+                              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1, alignItems: 'center' }}>
+                                <Button startIcon={<AddIcon />} size="small" onClick={() => handleAddColumn(attrKey)}>
+                                  Add Row
+                                </Button>
+                              </Box>
+                            </CardContent>
+                          </Card>
+                        )}
+                      </SortableAttributeCard>
+                    );
+                  }
                 })}
               </Box>
             </SortableContext>
@@ -777,9 +1240,32 @@ export default function SideBySide() {
 
         {/* Vertical resizer */}
         <Box
-          onMouseDown={() => setIsResizing(true)}
-          onTouchStart={() => setIsResizing(true)}
-          sx={{ width: '10px', cursor: 'col-resize', backgroundColor: isResizing ? '#ccc' : '#eee', '&:hover': { backgroundColor: '#ddd' } }}
+          onMouseDown={(e) => {
+            console.log('Resizing started (mouse)');
+            setIsResizing(true);
+            e.preventDefault();
+          }}
+          onTouchStart={(e) => {
+            console.log('Resizing started (touch)');
+            setIsResizing(true);
+            e.preventDefault();
+          }}
+          sx={{ 
+            width: '10px', 
+            cursor: 'col-resize', 
+            backgroundColor: isResizing ? '#ccc' : '#eee', 
+            '&:hover': { backgroundColor: '#ddd' },
+            position: 'relative',
+            '&::after': {
+              content: '""',
+              position: 'absolute',
+              top: 0,
+              bottom: 0,
+              left: '-5px',
+              right: '-5px',
+              cursor: 'col-resize'
+            }
+          }}
         />
 
         {/* Right: PDF via react-pdf */}
@@ -793,14 +1279,25 @@ export default function SideBySide() {
               marginTop: '20px',
               display: 'block',
               imageRendering: 'high-quality',
-
             },
-
+            // Fix grey background when selecting class is added
+            '& .react-pdf__Page__textContent.selecting': {
+              backgroundColor: 'transparent !important'
+            },
+            '& .react-pdf__Page__textContent.selecting *': {
+              backgroundColor: 'transparent !important'
+            }
           }}
         >
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Typography variant="h6" sx={{ color: '#000' }}>PDF Preview</Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              {/* Debug: Show resizing state */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mr: 2 }}>
+                <Typography variant="caption" sx={{ color: isResizing ? 'warning.main' : 'success.main' }}>
+                  {isResizing ? '🔄 Resizing' : '✅ Stable'}
+                </Typography>
+              </Box>
               {pdfUrl && (
                 <Typography variant="caption" sx={{ color: 'text.secondary', mr: 2 }}>
                   Type: {pdfUrl.startsWith('data:application/pdf;base64,') ? 'Base64' : 
@@ -819,38 +1316,51 @@ export default function SideBySide() {
               )}
             </Box>
           </Box>
-          {pdfUrlLoading ? (
-            <Typography variant="body1" sx={{ color: 'black' }}>Loading PDF...</Typography>
-          ) : pdfUrl ? (
-            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <Document 
-                file={pdfUrl} 
-                onLoadSuccess={({ numPages }) => {
-                  console.log('PDF loaded successfully with', numPages, 'pages');
-                  setNumPages(numPages);
-                }}
-                onLoadError={(error) => {
-                  console.error('PDF load error:', error);
-                }}
-                loading={<Typography variant="body1" sx={{ color: 'black' }}>Loading PDF...</Typography>}
-                error={<Typography variant="body1" color="error">Failed to load PDF</Typography>}
-              >
-                {numPages > 0 && Array.apply(null, { length: numPages }).map((_, index) => (
-                  <Box key={`page_${index + 1}`} sx={{ mb: 3 }}>
-                                         <Page 
-                       pageNumber={index + 1} 
-                       width={pdfWidth} // Responsive width from state
-                       loading={<Typography variant="body1" sx={{ color: 'black' }}>Loading page...</Typography>}
-                       renderTextLayer={true} // Enable text layer for better quality
-                       renderAnnotationLayer={true} // Enable annotation layer
-                     />
-                  </Box>
-                ))}
-              </Document>
-            </Box>
-          ) : (
-            <Typography variant="body1">No PDF URL found. Save to S3 from Upload Markdown first.</Typography>
-          )}
+                     {pdfLoading ? (
+             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mt: 4 }}>
+               <Typography variant="body1" sx={{ color: 'text.secondary', mb: 2 }}>
+                 Loading PDF from S3...
+               </Typography>
+               <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                 This may take a moment for large files
+               </Typography>
+             </Box>
+           ) : pdfUrl ? (
+             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+               {isResizing ? (
+                 <Typography variant="body1" sx={{ color: 'text.secondary', mt: 4 }}>
+                   Resizing... PDF will update when finished
+                 </Typography>
+               ) : (
+                 <Document 
+                   file={pdfUrl} 
+                   onLoadSuccess={({ numPages }) => {
+                     console.log('PDF loaded successfully with', numPages, 'pages');
+                     setNumPages(numPages);
+                   }}
+                   onLoadError={(error) => {
+                     console.error('PDF load error:', error);
+                   }}
+                   loading={<Typography variant="body1" sx={{ color: 'black' }}>Loading PDF...</Typography>}
+                   error={<Typography variant="body1" color="error">Failed to load PDF</Typography>}
+                 >
+                   {numPages > 0 && Array.apply(null, { length: numPages }).map((_, index) => (
+                     <Box key={`page_${index + 1}`} sx={{ mb: 3 }}>
+                       <Page 
+                         pageNumber={index + 1} 
+                         width={pdfWidth} // Responsive width from state
+                         loading={<Typography variant="body1" sx={{ color: 'black' }}>Loading page...</Typography>}
+                         renderTextLayer={true} // Enable text layer for better quality
+                         renderAnnotationLayer={true} // Enable annotation layer
+                       />
+                     </Box>
+                   ))}
+                 </Document>
+               )}
+             </Box>
+           ) : (
+             <Typography variant="body1">No PDF URL found. Save to S3 from Upload Markdown first.</Typography>
+           )}
         </Box>
       </Box>
       

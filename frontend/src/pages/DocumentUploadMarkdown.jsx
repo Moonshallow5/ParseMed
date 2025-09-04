@@ -193,9 +193,22 @@ function DocumentUploadMarkdown() {
         throw new Error(await response.text());
       }
       
-      const data = await response.json();
-      setExtractedData(data.json);
-      console.log('LLM Extracted Data:', data.json);
+             const data = await response.json();
+       setExtractedData(data.json);
+       console.log('LLM Extracted Data:', data.json);
+       
+               // Debug: Show how data will be processed
+        if (data.json && typeof data.json === 'object') {
+          console.log('Processing extracted data:');
+          Object.entries(data.json).forEach(([key, value]) => {
+            if (!(key.startsWith('--- ') && key.endsWith(' ---'))) {
+              const normalized = normalizeValueToColumns(value);
+              console.log(`  ${key}:`, normalized);
+              console.log(`  ${key} length:`, normalized.length);
+              console.log(`  ${key} first value:`, normalized[0]);
+            }
+          });
+        }
     } catch (err) {
       setJsonError(err.message);
     } finally {
@@ -206,7 +219,29 @@ function DocumentUploadMarkdown() {
   // Keep a stable order of attribute cards
   useEffect(() => {
     if (extractedData && typeof extractedData === 'object' && !Array.isArray(extractedData)) {
-      setAttributesOrder(Object.keys(extractedData));
+      // Check if this is from an extreme configuration (has category separators)
+      const isExtremeConfig = Object.keys(extractedData).some(key => 
+        key.startsWith('--- ') && key.endsWith(' ---')
+      );
+      
+      if (isExtremeConfig) {
+        // For extreme configurations, organize by categories
+        const categories = [];
+        let currentCategory = null;
+        
+        Object.entries(extractedData).forEach(([key, value]) => {
+          if (key.startsWith('--- ') && key.endsWith(' ---')) {
+            // This is a category separator
+            currentCategory = key.replace('--- ', '').replace(' ---', '');
+            categories.push(currentCategory);
+          }
+        });
+        
+        setAttributesOrder(categories);
+      } else {
+        // Regular configuration - use all keys
+        setAttributesOrder(Object.keys(extractedData));
+      }
     } else {
       setAttributesOrder([]);
     }
@@ -517,24 +552,46 @@ function DocumentUploadMarkdown() {
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                     <strong>Configuration Attributes</strong>
                   </Typography>
-                                     <TableContainer component={Paper} sx={{ overflowX: 'auto', backgroundColor: '#f7f5f1' }}>
-                     <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
-                       <TableHead>
-                         <TableRow>
-                           <TableCell sx={{ fontWeight: 'bold', width: '35%' }}>Attribute Name</TableCell>
-                           <TableCell sx={{ fontWeight: 'bold' }}>Query</TableCell>
-                         </TableRow>
-                       </TableHead>
-                       <TableBody>
-                         {selectedConfigData.template_json.attributes.map((attr, idx) => (
-                           <TableRow key={idx}>
-                             <TableCell sx={{ wordBreak: 'break-word' }}>{attr?.name || ''}</TableCell>
-                             <TableCell sx={{ wordBreak: 'break-word' }}>{attr?.query || ''}</TableCell>
-                           </TableRow>
-                         ))}
-                       </TableBody>
-                     </Table>
-                   </TableContainer>
+                  
+                  {/* Check if this is an extreme configuration */}
+                  {selectedConfigData.template_json.attributes.some(attr => 
+                    attr?.name?.startsWith('--- ') && attr?.name?.endsWith(' ---')
+                  ) && (
+                    <Typography variant="caption" color="primary" sx={{ mb: 1, display: 'block' }}>
+                      🔥 Extreme Configuration: Data will be organized into separate cards by category
+                    </Typography>
+                  )}
+                  
+                  <TableContainer component={Paper} sx={{ overflowX: 'auto', backgroundColor: '#f7f5f1' }}>
+                    <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 'bold', width: '35%' }}>Attribute Name</TableCell>
+                          <TableCell sx={{ fontWeight: 'bold' }}>Query</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {selectedConfigData.template_json.attributes.map((attr, idx) => {
+                          const isCategorySeparator = attr?.name?.startsWith('--- ') && attr?.name?.endsWith(' ---');
+                          return (
+                            <TableRow key={idx} sx={{ 
+                              backgroundColor: isCategorySeparator ? '#e3f2fd' : 'inherit',
+                              fontWeight: isCategorySeparator ? 'bold' : 'normal'
+                            }}>
+                              <TableCell sx={{ 
+                                wordBreak: 'break-word',
+                                fontWeight: isCategorySeparator ? 'bold' : 'normal',
+                                color: isCategorySeparator ? 'primary.main' : 'inherit'
+                              }}>
+                                {attr?.name || ''}
+                              </TableCell>
+                              <TableCell sx={{ wordBreak: 'break-word' }}>{attr?.query || ''}</TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
                 </Box>
               )}
               
@@ -595,14 +652,22 @@ function DocumentUploadMarkdown() {
                         </Button>
          )}
 
-        {/* Extracted Data Display */}
-        {extractedData && (
-         <Box sx={{ mt: 4 }}>
-           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-             <Typography variant="h5">
-                Extracted Data
-             </Typography>
-           </Box>
+                 {/* Extracted Data Display */}
+         {extractedData && (
+          <Box sx={{ mt: 4 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+              <Typography variant="h5">
+                 Extracted Data
+                 {/* Show indicator for extreme configurations */}
+                 {Object.keys(extractedData).some(key => 
+                   key.startsWith('--- ') && key.endsWith(' ---')
+                 ) && (
+                   <Typography variant="caption" display="block" sx={{ color: 'primary.main', mt: 1, fontWeight: 'bold' }}>
+                     🔥 Extreme Configuration: Category separators filtered out for clean display
+                   </Typography>
+                 )}
+              </Typography>
+            </Box>
             
             {/* Table Display of Extracted Data */}
               <Card sx={{ mt: 2, width: '100%' }}>
@@ -621,64 +686,78 @@ function DocumentUploadMarkdown() {
                               }}>
                                 Field Name
                               </TableCell>
-                              {(() => {
-                                // Compute max columns across normalized values
-                                const maxColumns = Math.max(
-                                  ...Object.values(extractedData).map((value) => normalizeValueToColumns(value).length)
-                                );
-                                return Array.from({ length: maxColumns }, (_, index) => (
-                                  <TableCell
-                                    key={index}
-                                    sx={{
-                                      fontWeight: 'bold',
-                                      backgroundColor: '#f5f5f5',
-                                      textAlign: 'center',
-                                      width: '50%',
-                                    
-                                    }}
-                                  >
-                                    Value {index + 1}
-                                  </TableCell>
-                                ));
-                              })()}
+                                                             {(() => {
+                                 // Filter out category separators for max columns calculation
+                                 const filteredData = Object.fromEntries(
+                                   Object.entries(extractedData).filter(([k]) => 
+                                     !(k.startsWith('--- ') && k.endsWith(' ---'))
+                                   )
+                                 );
+                                 const maxColumns = Math.max(
+                                   ...Object.values(filteredData).map((value) => normalizeValueToColumns(value).length)
+                                 );
+                                 return Array.from({ length: maxColumns }, (_, index) => (
+                                   <TableCell
+                                     key={index}
+                                     sx={{
+                                       fontWeight: 'bold',
+                                       backgroundColor: '#f5f5f5',
+                                       textAlign: 'center',
+                                       width: maxColumns > 1 ? `${100 / maxColumns}%` : '50%',
+                                     }}
+                                   >
+                                     {maxColumns === 1 ? 'Value' : `Value ${index + 1}`}
+                                   </TableCell>
+                                 ));
+                               })()}
                             </TableRow>
                           </TableHead>
-                          <TableBody>
-                            {Object.entries(extractedData).map(([key, value], rowIdx) => {
-                              const values = normalizeValueToColumns(value);
-                              
-                              return (
-                                <TableRow key={rowIdx}>
-                                  <TableCell sx={{ 
-                                    fontWeight: 'bold',
-                                    backgroundColor: '#f0f0f0',
-                                    overflowX:'auto',
-                                    width:'50%'
-                                  }}>
-                                    {key}
-                                  </TableCell>
-                                  {(() => {
-                                    const maxColumns = Math.max(
-                                      ...Object.values(extractedData).map((v) => normalizeValueToColumns(v).length)
-                                    );
-                                    
-                                    // Generate cells for this row
-                                    return Array.from({ length: maxColumns }, (_, colIdx) => (
-                                      <TableCell 
-                                        key={colIdx}
-                                        sx={{ 
-                                          textAlign: 'center',
-                                          wordBreak: 'break-word'
-                                        }}
-                                      >
-                                        {values[colIdx] ?? ''}
-                                      </TableCell>
-                                    ));
-                                  })()}
-                                </TableRow>
-                              );
-                            })}
-                          </TableBody>
+                                                     <TableBody>
+                             {Object.entries(extractedData)
+                               .filter(([key]) => !(key.startsWith('--- ') && key.endsWith(' ---'))) // Filter out category separators
+                               .map(([key, value], rowIdx) => {
+                               const values = normalizeValueToColumns(value);
+                               
+                               return (
+                                 <TableRow key={rowIdx}>
+                                   <TableCell sx={{ 
+                                     fontWeight: 'bold',
+                                     backgroundColor: '#f0f0f0',
+                                     overflowX:'auto',
+                                     width:'50%'
+                                   }}>
+                                     {key}
+                                   </TableCell>
+                                   {(() => {
+                                     // Filter out category separators for max columns calculation
+                                     const filteredData = Object.fromEntries(
+                                       Object.entries(extractedData).filter(([k]) => 
+                                         !(k.startsWith('--- ') && k.endsWith(' ---'))
+                                       )
+                                     );
+                                     const maxColumns = Math.max(
+                                       ...Object.values(filteredData).map((v) => normalizeValueToColumns(v).length)
+                                     );
+                                     
+                                     // Generate cells for this row
+                                     return Array.from({ length: maxColumns }, (_, colIdx) => (
+                                       <TableCell 
+                                         key={colIdx}
+                                         sx={{ 
+                                           textAlign: 'center',
+                                           wordBreak: 'break-word',
+                                           whiteSpace: 'normal',
+                                           maxWidth: '200px'
+                                         }}
+                                       >
+                                         {values[colIdx] ?? ''}
+                                       </TableCell>
+                                     ));
+                                   })()}
+                                 </TableRow>
+                               );
+                             })}
+                           </TableBody>
                         </Table>
                       </TableContainer>
               </CardContent>
@@ -689,117 +768,214 @@ function DocumentUploadMarkdown() {
               <Box sx={{ mt: 3 }}>
                 <Typography variant="h6" color="black" gutterBottom>
                   Attribute Cards (Draggable, Inline Editable)
+                  {/* Show indicator for extreme configurations */}
+                  {Object.keys(extractedData).some(key => 
+                    key.startsWith('--- ') && key.endsWith(' ---')
+                  ) && (
+                    <Typography variant="caption" display="block" sx={{ color: 'primary.main', mt: 1, fontWeight: 'bold' }}>
+                      🔥 Extreme Configuration: Category separators filtered out for clean display
+                    </Typography>
+                  )}
                 </Typography>
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                   <SortableContext items={attributesOrder} strategy={verticalListSortingStrategy}>
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                       {attributesOrder.map((attrKey) => {
-                        const { columns, rows, type } = deriveColumnsAndRows(attrKey);
-                        return (
-                          <SortableAttributeCard key={attrKey} attributeKey={attrKey}>
-                            {({ listeners }) => (
+                        // Check if this is a category (for extreme configurations)
+                        const isExtremeConfig = Object.keys(extractedData).some(key => 
+                          key.startsWith('--- ') && key.endsWith(' ---')
+                        );
+                        
+                        if (isExtremeConfig) {
+                          // For extreme configurations, render category-based cards
+                          const categoryAttributes = [];
+                          let currentCategory = null;
+                          
+                          Object.entries(extractedData).forEach(([key, value]) => {
+                            if (key.startsWith('--- ') && key.endsWith(' ---')) {
+                              currentCategory = key.replace('--- ', '').replace(' ---', '');
+                            } else if (currentCategory === attrKey) {
+                              categoryAttributes.push({ key, value });
+                            }
+                          });
+                          
+                          return (
+                            <SortableAttributeCard key={attrKey} attributeKey={attrKey}>
+                              {({ listeners }) => (
                                 <Card sx={{ p: 1, width: '100%' }}>
-                                 <CardContent>
-                                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                                     <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                                       {attrKey}
-                                     </Typography>
-                                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                       <IconButton size="small" color="error" onClick={() => {
-                                         const updated = { ...(extractedData || {}) };
-                                         delete updated[attrKey];
-                                         setExtractedData(updated);
-                                         setAttributesOrder((prev) => prev.filter((k) => k !== attrKey));
-                                       }} aria-label={`delete card ${attrKey}`}>
-                                         <DeleteIcon fontSize="small" />
+                                  <CardContent>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                                        {attrKey}
+                                      </Typography>
+                                                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                         <IconButton size="small" color="error" onClick={() => {
+                                           // Remove entire category and its attributes
+                                           const updated = { ...(extractedData || {}) };
+                                           const categorySeparator = `--- ${attrKey} ---`;
+                                           delete updated[categorySeparator];
+                                           
+                                           // Remove all attributes in this category
+                                           categoryAttributes.forEach(({ key }) => {
+                                             delete updated[key];
+                                           });
+                                           
+                                           setExtractedData(updated);
+                                           
+                                           // Update attributes order
+                                           const remainingCategories = [];
+                                           let currentCategory = null;
+                                           Object.entries(updated).forEach(([key, value]) => {
+                                             if (key.startsWith('--- ') && key.endsWith(' ---')) {
+                                               currentCategory = key.replace('--- ', '').replace(' ---', '');
+                                               remainingCategories.push(currentCategory);
+                                             }
+                                           });
+                                           setAttributesOrder(remainingCategories);
+                                         }} aria-label={`delete category ${attrKey}`}>
+                                           <DeleteIcon fontSize="small" />
+                                         </IconButton>
+                                       </Box>
+                                     </Box>
+                                     <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1, mb: 1 }}>
+                                       <IconButton size="large" {...listeners} aria-label="drag">
+                                         <DragIndicatorIcon fontSize="large" />
                                        </IconButton>
                                      </Box>
-                                   </Box>
-                                   <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1, mb: 1 }}>
-                                     <IconButton size="large" {...listeners} aria-label="drag">
-                                       <DragIndicatorIcon fontSize="large" />
-                                     </IconButton>
-                                   </Box>
-                                  <TableContainer component={Paper} sx={{ overflowX: 'auto', width: '100%' }}>
-                                    <Table sx={{ tableLayout: 'fixed', width: '100%' }}>
-                                      <TableHead>
-                                        <TableRow>
-                                          {columns.map((hdr, idx) => (
-                                            <TableCell key={idx} align="center" sx={{ fontWeight: 'bold' }}>
-                                              {(type === 'object' || type === 'arrayOfObjects') ? (
-                                                <TextField
-                                                  value={hdr}
-                                                  onChange={(e) => handleHeaderRename(attrKey, idx, e.target.value)}
-                                                  variant="standard"
-                                                  size="small"
-                                                  inputProps={{ style: { textAlign: 'center', fontWeight: 700 } }}
-                                                />
-                                              ) : (
-                                                hdr
-                                              )}
-                                              <IconButton size="small" onClick={() => handleRemoveColumn(attrKey, idx)} aria-label={`remove column ${idx + 1}`}>
-                                                <DeleteIcon fontSize="small" />
-                                              </IconButton>
-                                            </TableCell>
-                                          ))}
-                                          <TableCell align="center" sx={{ fontWeight: 'bold' }}>Actions</TableCell>
-                                        </TableRow>
-                                      </TableHead>
-                                      <TableBody>
-                                        {rows.map((row, rowIdx) => (
-                                          <TableRow key={rowIdx}>
-                                            {row.map((val, colIdx) => (
-                                              <TableCell key={colIdx} align="center">
-                                                <TextField
-                                                  value={val}
-                                                  onChange={(e) => handleCellChange(attrKey, rowIdx, colIdx, e.target.value)}
-                                                  variant="standard"
-                                                  fullWidth
-                                                />
-                                              </TableCell>
-                                            ))}
-                                            <TableCell align="center">
-                                              <IconButton 
-                                                size="small"
-                                                onClick={(event) => handleActionMenuOpen(event, attrKey, rowIdx)}
-                                                aria-label={`actions for row ${rowIdx + 1}`}
-                                              >
-                                                <MoreVertIcon />
-                                              </IconButton>
-                                            </TableCell>
-                                          </TableRow>
-                                        ))}
-                                      </TableBody>
-                                    </Table>
-                                  </TableContainer>
-
-                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1, alignItems: 'center' }}>
-                                       {/* <Button 
-                                         variant="outlined" 
-                                         size="small" 
-                                         onClick={() => {
-                                           // For DocumentUploadMarkdown, we'll show a message since PDF isn't displayed here
-                                           alert(`This would locate "${attrKey}" content in the PDF. Use the "Open Side-by-Side" button to access this feature.`);
-                                         }}
-                                         sx={{ 
-                                           fontSize: '0.75rem',
-                                           minWidth: 'auto',
-                                           px: 1
-                                         }}
-                                         title="This feature is available in Side-by-Side view"
-                                       >
-                                         📍 Locate in PDF
-                                       </Button> */}
+                                     
+                                     {/* Render category attributes as a table */}
+                                     <TableContainer component={Paper} sx={{ overflowX: 'auto', width: '100%' }}>
+                                       <Table sx={{ tableLayout: 'fixed', width: '100%' }}>
+                                         <TableHead>
+                                           <TableRow>
+                                             <TableCell sx={{ fontWeight: 'bold', width: '40%' }}>Attribute</TableCell>
+                                             <TableCell sx={{ fontWeight: 'bold' }}>Value</TableCell>
+                                           </TableRow>
+                                         </TableHead>
+                                         <TableBody>
+                                           {categoryAttributes.map(({ key, value }, idx) => {
+                                             const values = normalizeValueToColumns(value);
+                                             return (
+                                               <TableRow key={idx}>
+                                                 <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#f0f0f0' }}>
+                                                   {key}
+                                                 </TableCell>
+                                                 <TableCell>
+                                                   <TextField
+                                                     value={values.join('; ')}
+                                                     onChange={(e) => {
+                                                       const updated = { ...extractedData };
+                                                       updated[key] = e.target.value;
+                                                       setExtractedData(updated);
+                                                     }}
+                                                     variant="standard"
+                                                     fullWidth
+                                                     multiline
+                                                   />
+                                                 </TableCell>
+                                               </TableRow>
+                                             );
+                                           })}
+                                         </TableBody>
+                                       </Table>
+                                     </TableContainer>
+                                   </CardContent>
+                                 </Card>
+                               )}
+                             </SortableAttributeCard>
+                           );
+                         } else {
+                           // Regular configuration - render individual attribute cards
+                           const { columns, rows, type } = deriveColumnsAndRows(attrKey);
+                           return (
+                             <SortableAttributeCard key={attrKey} attributeKey={attrKey}>
+                               {({ listeners }) => (
+                                 <Card sx={{ p: 1, width: '100%' }}>
+                                   <CardContent>
+                                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                                       <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                                         {attrKey}
+                                       </Typography>
+                                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                         <IconButton size="small" color="error" onClick={() => {
+                                           const updated = { ...(extractedData || {}) };
+                                           delete updated[attrKey];
+                                           setExtractedData(updated);
+                                           setAttributesOrder(Object.keys(updated));
+                                         }} aria-label={`delete card ${attrKey}`}>
+                                           <DeleteIcon fontSize="small" />
+                                         </IconButton>
+                                       </Box>
+                                     </Box>
+                                     <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1, mb: 1 }}>
+                                       <IconButton size="large" {...listeners} aria-label="drag">
+                                         <DragIndicatorIcon fontSize="large" />
+                                       </IconButton>
+                                     </Box>
+                                     <TableContainer component={Paper} sx={{ overflowX: 'auto', width: '100%' }}>
+                                       <Table sx={{ tableLayout: 'fixed', width: '100%' }}>
+                                         <TableHead>
+                                           <TableRow>
+                                             {columns.map((hdr, idx) => (
+                                               <TableCell key={idx} align="center" sx={{ fontWeight: 'bold' }}>
+                                                 {(type === 'object' || type === 'arrayOfObjects') ? (
+                                                   <TextField
+                                                     value={hdr}
+                                                     onChange={(e) => handleHeaderRename(attrKey, idx, e.target.value)}
+                                                     variant="standard"
+                                                     size="small"
+                                                     inputProps={{ style: { textAlign: 'center', fontWeight: 700 } }}
+                                                   />
+                                                 ) : (
+                                                   hdr
+                                                 )}
+                                                 <IconButton size="small" onClick={() => handleRemoveColumn(attrKey, idx)} aria-label={`remove column ${idx + 1}`}>
+                                                   <DeleteIcon fontSize="small" />
+                                                 </IconButton>
+                                               </TableCell>
+                                             ))}
+                                             <TableCell align="center" sx={{ fontWeight: 'bold' }}>Actions</TableCell>
+                                           </TableRow>
+                                         </TableHead>
+                                         <TableBody>
+                                           {rows.map((row, rowIdx) => (
+                                             <TableRow key={rowIdx}>
+                                               {row.map((val, colIdx) => (
+                                                 <TableCell key={colIdx} align="center">
+                                                   <TextField
+                                                     value={val}
+                                                     onChange={(e) => handleCellChange(attrKey, rowIdx, colIdx, e.target.value)}
+                                                     variant="standard"
+                                                     fullWidth
+                                                   />
+                                                 </TableCell>
+                                               ))}
+                                               <TableCell align="center">
+                                                 <IconButton 
+                                                   size="small"
+                                                   onClick={(event) => handleActionMenuOpen(event, attrKey, rowIdx)}
+                                                   aria-label={`actions for row ${rowIdx + 1}`}
+                                                 >
+                                                   <MoreVertIcon />
+                                                 </IconButton>
+                                               </TableCell>
+                                             </TableRow>
+                                           ))}
+                                         </TableBody>
+                                       </Table>
+                                     </TableContainer>
+                                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1, alignItems: 'center' }}>
                                        <Button startIcon={<AddIcon />} size="small" onClick={() => handleAddColumn(attrKey)}>
                                          Add Column
                                        </Button>
                                      </Box>
-                                </CardContent>
-                              </Card>
-                            )}
-                          </SortableAttributeCard>
-                        );
-                      })}
+                                   </CardContent>
+                                 </Card>
+                               )}
+                             </SortableAttributeCard>
+                           );
+                         }
+                       })}
                     </Box>
                   </SortableContext>
                 </DndContext>

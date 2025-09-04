@@ -1,6 +1,5 @@
-from fastapi import FastAPI, UploadFile, File, Request
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-import shutil
 import openai
 import os
 import logging
@@ -74,37 +73,78 @@ async def markdown_to_json(request: Request):
         attributes = template.get("attributes", [])
         logger.info(f"Attributes to extract: {attributes}")
         
+        # Check if this is an extreme configuration (has category separators)
+        is_extreme_config = any(
+            attr.get("name", "").startswith("--- ") and attr.get("name", "").endswith(" ---")
+            for attr in attributes
+        )
+        
+        logger.info(f"Is extreme configuration: {is_extreme_config}")
+        
         # Build a comprehensive prompt using the configuration
         system_prompt = "You are an intelligent information extractor. Extract specific information from the document based on the provided configuration. Return ONLY valid JSON with no additional text or explanation."
         
         # Create user prompt with configuration details
-        user_prompt = f"""
-            You are a document extraction tool designed to extract specific information from 
-            medical research documents. The extracted information will be used for my own 
-            personal publication. Focus only on the relevant factual data from the document.
-            ATTRIBUTES TO EXTRACT:
-            {json.dumps(attributes, indent=2)}
+        if is_extreme_config:
+            user_prompt = f"""
+                You are a document extraction tool designed to extract specific information from 
+                medical research documents. The extracted information will be used for my own 
+                personal publication. Focus only on the relevant factual data from the document.
+                
+                ATTRIBUTES TO EXTRACT:
+                {json.dumps(attributes, indent=2)}
 
-            DOCUMENT TEXT:
-            {markdown}
+                DOCUMENT TEXT:
+                {markdown}
 
-            Instructions:
-            1. For each attribute in the configuration, extract the corresponding information
-            2. Use the query to guide your extraction for each attribute
-            3. Return a JSON object where each key is the attribute name
-            4. If an attribute cannot be found, use null or empty string
-            5. Ensure the response is valid JSON only
-            6. Do NOT extract table data unless specifically requested in the attributes
-            7. If there are multiple answers to an attribute, separate each answer with a semicolon (;) — do not use commas to separate values.
+                Instructions:
+                1. For each attribute in the configuration, extract the corresponding information
+                2. Use the query to guide your extraction for each attribute
+                3. Return a JSON object where each key is the attribute name
+                4. If an attribute cannot be found, use null or empty string
+                5. Ensure the response is valid JSON only
+                7. If there are multiple answers to an attribute, separate each answer with a semicolon (;) — do not use commas to separate values.
+                8. IMPORTANT: Category separators (like "--- Author Details ---") are used to organize data into different sections. Extract data for these categories as well.
 
-            Example output format:
-            {{
-            "author name": "extracted author name here",
-            "other_attribute": "extracted value here"
-            }}
+                Example output format:
+                {{
+                "--- Author Details ---": "Category: Author Details",
+                "Author Name": "extracted author name here",
+                "Author Institution": "extracted institution here",
+                "--- Population ---": "Category: Population", 
+                "Number of Patients": "extracted patient count here",
+                "Patient Age Range": "extracted age range here"
+                }}
 
-            Return the extracted data as a JSON object.
-            """
+                Return the extracted data as a JSON object.
+                """
+        else:
+            user_prompt = f"""
+                You are a document extraction tool designed to extract specific information from 
+                medical research documents. The extracted information will be used for my own 
+                personal publication. Focus only on the relevant factual data from the document.
+                ATTRIBUTES TO EXTRACT:
+                {json.dumps(attributes, indent=2)}
+
+                DOCUMENT TEXT:
+                {markdown}
+
+                Instructions:
+                1. For each attribute in the configuration, extract the corresponding information
+                2. Use the query to guide your extraction for each attribute
+                3. Return a JSON object where each key is the attribute name
+                4. If an attribute cannot be found, use null or empty string
+                5. Ensure the response is valid JSON only
+                7. If there are multiple answers to an attribute, separate each answer with a semicolon (;) — do not use commas to separate values.
+
+                Example output format:
+                {{
+                "author name": "extracted author name here",
+                "other_attribute": "extracted value here"
+                }}
+
+                Return the extracted data as a JSON object.
+                """
         
         logger.info(f"System prompt length: {len(system_prompt)} characters")
         logger.info(f"User prompt length: {len(user_prompt)} characters")
@@ -116,7 +156,7 @@ async def markdown_to_json(request: Request):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            max_tokens=500,
+            max_tokens=2000,  # Increased from 500 to handle longer responses
             temperature=0.2,
         )
         
@@ -138,10 +178,17 @@ async def markdown_to_json(request: Request):
             logger.info(f"JSON result type: {type(json_result)}")
             if isinstance(json_result, dict):
                 logger.info(f"JSON result keys: {list(json_result.keys())}")
+                
+                # For extreme configurations, keep the original structure with category separators
+                # The frontend will handle filtering and organizing the data
+                if is_extreme_config:
+                    logger.info("Extreme configuration detected - keeping original structure with category separators")
+                    # Don't modify the json_result - let the frontend handle the organization
+                    
         except Exception as json_error:
             logger.error(f"Failed to parse JSON: {json_error}")
             logger.info("Returning raw content as fallback")
-            json_result = cleaned_content # For debugging if the LLM returns non-JSON
+            json_result = cleaned_content  # For debugging if the LLM returns non-JSON
 
         logger.info("=== Returning response ===")
         return {"json": json_result}
@@ -274,31 +321,34 @@ async def finalize_extracted_details(request: Request):
         return {"error": f"Failed to finalize extracted details: {str(e)}"}
 
 
-@app.get("/get-pdf-url")
-async def get_pdf_url(pdf_key: str):
-    logger.info(f"=== Starting get-pdf-url request for key: {pdf_key} ===")
+
+@app.get("/get-pdf-base64")
+async def get_pdf_base64(pdf_key: str):
+    logger.info(f"=== Starting get-pdf-base64 request for key: {pdf_key} ===")
     try:
         if not pdf_key:
             return {"error": "pdf_key is required"}
         
-        try:
-            # Generate a fresh presigned URL for the PDF
-            pdf_url = s3_client.generate_presigned_url(
-                'get_object',
-                Params={'Bucket': S3_BUCKET_NAME, 'Key': pdf_key},
-                ExpiresIn=60 * 60 * 24 * 7  # 7 days
-            )
-            logger.info(f"Generated fresh presigned URL for PDF: {pdf_key}")
-            return {"success": True, "pdf_url": pdf_url}
-        except Exception as s3_error:
-            logger.error(f"Error generating presigned URL: {s3_error}")
-            return {"error": f"Failed to generate PDF URL: {str(s3_error)}"}
-            
+        # Generate presigned URL for the frontend to fetch and convert
+        pdf_url = s3_client.generate_presigned_url(
+            'get_object',
+            Params={
+                'Bucket': S3_BUCKET_NAME,
+                'Key': pdf_key
+            },
+            ExpiresIn=300  # 5 minutes
+        )
+        
+        logger.info(f"Generated presigned URL for PDF: {pdf_key}")
+        return {
+            "success": True, 
+            "pdf_url": pdf_url,
+            "message": "Use this URL to fetch and convert to base64 on the frontend"
+        }
+        
     except Exception as e:
-        logger.error(f"Exception in get-pdf-url: {str(e)}")
-        import traceback
-        logger.error(f"Full traceback: {traceback.format_exc()}")
-        return {"error": f"Failed to get PDF URL: {str(e)}"}
+        logger.error(f"Exception in get-pdf-base64: {str(e)}")
+        return {"error": f"Failed to generate PDF URL: {str(e)}"}
 
 
 @app.get("/get-saved-tables")
@@ -461,3 +511,84 @@ async def get_configurations():
         import traceback
         logger.error(f"Full traceback: {traceback.format_exc()}")
         return {"error": f"Failed to retrieve configurations: {str(e)}"}
+
+
+@app.post("/save-favorite-template")
+async def save_favorite_template(request: Request):
+    logger.info("=== Starting save-favorite-template request ===")
+    try:
+        data = await request.json()
+        logger.info(f"Received favorite template data: {data}")
+        
+        name = data.get("name", "")
+        category = data.get("category", "")
+        description = data.get("description", "")
+        template = data.get("template", [])
+        
+        if not name:
+            return {"error": "Template name is required"}
+        
+        if not category:
+            return {"error": "Category is required"}
+            
+        if not template or not isinstance(template, list):
+            return {"error": "Template data is required"}
+        
+        # Save to Supabase database
+        db_record = {
+            "name": name,
+            "category": category,
+            "description": description,
+            "template_data": template,  # Store the template fields
+            "created_at": datetime.now().isoformat()
+        }
+        
+        try:
+            # Insert record into Supabase favorite_templates table
+            result = supabase.table('favorite_templates').insert(db_record).execute()
+            logger.info(f"Favorite template saved to Supabase: {result}")
+            
+            return {
+                "success": True,
+                "message": "Favorite template saved successfully",
+                "id": result.data[0]['id'] if result.data else None,
+                "savedAt": datetime.now().isoformat()
+            }
+            
+        except Exception as db_error:
+            logger.error(f"Supabase insert error: {db_error}")
+            logger.error(f"Supabase error type: {type(db_error)}")
+            return {"error": f"Failed to save favorite template to database: {str(db_error)}"}
+        
+    except Exception as e:
+        logger.error(f"Exception in save_favorite_template: {str(e)}")
+        logger.error(f"Exception type: {type(e)}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        return {"error": f"Failed to save favorite template: {str(e)}"}
+
+
+@app.get("/get-favorite-templates")
+async def get_favorite_templates(category: str = None):
+    logger.info(f"=== Starting get-favorite-templates request for category: {category} ===")
+    try:
+        # Build query based on whether category is specified
+        if category:
+            result = supabase.table('favorite_templates').select('*').eq('category', category).order('created_at', desc=True).execute()
+        else:
+            result = supabase.table('favorite_templates').select('*').order('created_at', desc=True).execute()
+        
+        logger.info(f"Retrieved {len(result.data)} favorite templates from database")
+        
+        return {
+            "success": True,
+            "templates": result.data,
+            "count": len(result.data)
+        }
+        
+    except Exception as e:
+        logger.error(f"Exception in get_favorite_templates: {str(e)}")
+        logger.error(f"Exception type: {type(e)}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        return {"error": f"Failed to retrieve favorite templates: {str(e)}"}

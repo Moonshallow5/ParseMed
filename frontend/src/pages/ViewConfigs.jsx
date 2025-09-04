@@ -47,7 +47,28 @@ function ViewConfigs() {
   }, []);
 
   const handleViewJson = (cfg) => {
-    navigate('/configuration', { state: { config: cfg } });
+    // Check if this is an extreme configuration by looking for category separators
+    let template = cfg.template_json;
+    if (typeof template === 'string') {
+      try {
+        template = JSON.parse(template);
+      } catch {
+        template = {};
+      }
+    }
+    
+    const attributes = template?.attributes || [];
+    const isExtremeConfig = attributes.some(attr => 
+      attr.name && attr.name.startsWith('--- ') && attr.name.endsWith(' ---')
+    );
+    
+    if (isExtremeConfig) {
+      // Navigate to extreme configurations page
+      navigate('/extreme-configurations', { state: { config: cfg } });
+    } else {
+      // Navigate to regular configuration page
+      navigate('/configuration', { state: { config: cfg } });
+    }
   };
 
   if (loading) {

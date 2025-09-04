@@ -101,6 +101,7 @@ const navigationItems = [
   { title: "Document Upload Markdown", route: "/upload-markdown", icon: <UploadFileIcon /> },
   { title: "Create Configs", route: "/configuration", icon: <SettingsIcon /> },
   { title: "View Configs", route: "/view-configs", icon: <VisibilityIcon /> },
+  { title: "Extreme Configs", route: "/extreme-configurations", icon: <SettingsIcon /> },
 ];
 
 export default function MainLayout({ children, onLogout, ...navProps }) {

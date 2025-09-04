@@ -76,22 +76,22 @@ function App() {
   }
 
   // Handle viewing table in side-by-side view
-  const handleViewInSideBySide = (table) => {
-    try {
+  const handleViewInSideBySide = async (table) => {
+    try {      
       // Parse the extracted JSON data
       const extractedData = JSON.parse(table.extracted_json);
       
-      // Navigate to side-by-side with the data
+      // Navigate immediately to side-by-side - let it handle PDF loading
       navigate('/side-by-side', {
         state: {
           extractedData,
           sourceFilename: table.filename,
-          s3PdfKey: table.filepath, // This is the S3 key, not a presigned URL
+          s3PdfKey: table.filepath, // Pass the S3 key for SideBySide to load PDF
           isFromSavedTable: true // Flag to indicate this is from a saved table
         }
       });
     } catch (err) {
-      console.error('Error parsing table data:', err);
+      console.error('Error loading table data for side-by-side view:', err);
       alert('Error loading table data for side-by-side view');
     }
   }
