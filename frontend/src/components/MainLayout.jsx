@@ -108,7 +108,7 @@ export default function MainLayout({ children, onLogout, ...navProps }) {
   const theme = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
-  const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'));
+  const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'));
 
   const [open, setOpen] = useState(!isSmallScreen);
 

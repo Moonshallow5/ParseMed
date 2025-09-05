@@ -103,17 +103,22 @@ async def markdown_to_json(request: Request):
                 3. Return a JSON object where each key is the attribute name
                 4. If an attribute cannot be found, use null or empty string
                 5. Ensure the response is valid JSON only
-                7. If there are multiple answers to an attribute, separate each answer with a semicolon (;) — do not use commas to separate values.
-                8. IMPORTANT: Category separators (like "--- Author Details ---") are used to organize data into different sections. Extract data for these categories as well.
-
-                Example output format:
+                6. If there are multiple answers to an attribute, separate each answer with a semicolon (;) — do not use commas to separate values.
+                7. IMPORTANT: Category separators (like "--- Author Details ---") are used to organize data into different sections. Extract data for these categories as well.
+                8. CRITICAL: When you see intervention-specific categories like "--- Population - Supraorbital/Eyebrow (SOA) ---", you MUST extract data specifically for that intervention. Look for data that mentions SOA, Supraorbital, Eyebrow, or similar terms for that category.
+                9. For intervention-specific data, look for sections in the document that discuss each intervention separately. If the document mentions "SOA group" or "TTA group", extract the relevant data for each group.
+                10. If the same attribute appears multiple times with different intervention filters, extract the data for each intervention separately.
+                
+                Example output format for intervention-specific data:
                 {{
                 "--- Author Details ---": "Category: Author Details",
                 "Author Name": "extracted author name here",
-                "Author Institution": "extracted institution here",
-                "--- Population ---": "Category: Population", 
-                "Number of Patients": "extracted patient count here",
-                "Patient Age Range": "extracted age range here"
+                "--- Population - Supraorbital/Eyebrow (SOA) ---": "Category: Population - Supraorbital/Eyebrow (SOA)",
+                "Number of Patients (SOA)": "25",
+                "Patient Age Range (SOA)": "58.16 ± 16.16",
+                "--- Population - Endoscopic Transorbital approach (TTA) ---": "Category: Population - Endoscopic Transorbital approach (TTA)",
+                "Number of Patients (TTA)": "18",
+                "Patient Age Range (TTA)": "52.1 ± 8.7"
                 }}
 
                 Return the extracted data as a JSON object.
@@ -170,6 +175,82 @@ async def markdown_to_json(request: Request):
         cleaned_content = re.sub(r"^```(?:json)?|```$", "", content.strip(), flags=re.MULTILINE).strip()
         logger.info(f"Cleaned content length: {len(cleaned_content)} characters")
         logger.info(f"Cleaned content: {cleaned_content}")
+
+        # For extreme configurations, fix duplicate keys by making them unique
+        if is_extreme_config:
+            logger.info("Processing extreme configuration - fixing duplicate keys")
+            # Find all intervention categories
+            intervention_categories = []
+            for attr in attributes:
+                if attr.get("name", "").startswith("--- ") and attr.get("name", "").endswith(" ---"):
+                    category_name = attr.get("name", "").replace("--- ", "").replace(" ---", "")
+                    if " - " in category_name:
+                        intervention_categories.append(category_name)
+            
+            logger.info(f"Found intervention categories: {intervention_categories}")
+            
+            # Process each intervention category to make keys unique
+            for category in intervention_categories:
+                if " - " in category:
+                    base_category, intervention = category.split(" - ")
+                    # Extract intervention abbreviation (e.g., "Supraorbital/Eyebrow (SOA)" -> "SOA")
+                    # Handle different formats: "Supraorbital/Eyebrow (SOA)" -> "SOA", "Transnasal" -> "Transnasal"
+                    if "(" in intervention and ")" in intervention:
+                        # Extract content between first parentheses
+                        start = intervention.find("(") + 1
+                        end = intervention.find(")", start)
+                        intervention_abbr = intervention[start:end].strip()
+                    else:
+                        # No parentheses, use the full intervention name (truncated if too long)
+                        intervention_abbr = intervention.strip()
+                        if len(intervention_abbr) > 10:
+                            # Use first word or first 10 characters
+                            intervention_abbr = intervention_abbr.split()[0][:10]
+                    
+                    # Find the category separator in the cleaned content
+                    category_separator = f'"--- {category} ---"'
+                    if category_separator in cleaned_content:
+                        logger.info(f"Processing category: {category} with abbreviation: {intervention_abbr}")
+                        
+                        # Find the section between this category and the next category
+                        start_idx = cleaned_content.find(category_separator)
+                        next_category_idx = len(cleaned_content)
+                        
+                        # Find the next category separator
+                        for other_category in intervention_categories:
+                            if other_category != category:
+                                other_separator = f'"--- {other_category} ---"'
+                                other_idx = cleaned_content.find(other_separator, start_idx + 1)
+                                if other_idx != -1 and other_idx < next_category_idx:
+                                    next_category_idx = other_idx
+                        
+                        # Also check for non-intervention categories
+                        for attr in attributes:
+                            attr_name = attr.get("name", "")
+                            if attr_name.startswith("--- ") and attr_name.endswith(" ---") and " - " not in attr_name:
+                                other_separator = f'"{attr_name}"'
+                                other_idx = cleaned_content.find(other_separator, start_idx + 1)
+                                if other_idx != -1 and other_idx < next_category_idx:
+                                    next_category_idx = other_idx
+                        
+                        # Extract the section for this intervention
+                        section = cleaned_content[start_idx:next_category_idx]
+                        logger.info(f"Section for {intervention_abbr}: {section[:200]}...")
+                        
+                        # Replace attribute names in this section to make them unique
+                        for attr in attributes:
+                            if not attr.get("name", "").startswith("--- "):
+                                attr_name = attr.get("name", "")
+                                # Only replace if this attribute appears in this section
+                                if f'"{attr_name}"' in section:
+                                    old_key = f'"{attr_name}"'
+                                    new_key = f'"{attr_name} ({intervention_abbr})"'
+                                    # Replace only within this specific section
+                                    section = section.replace(old_key, new_key)
+                                    logger.info(f"Replaced {old_key} with {new_key} in {intervention_abbr} section")
+                        
+                        # Update the cleaned_content with the modified section
+                        cleaned_content = cleaned_content[:start_idx] + section + cleaned_content[next_category_idx:]
 
         try:
             json_result = json.loads(cleaned_content)

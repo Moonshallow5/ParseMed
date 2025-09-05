@@ -28,6 +28,8 @@ import SaveIcon from '@mui/icons-material/Save';
 import DeleteIcon from '@mui/icons-material/Delete';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
+import Checkbox from '@mui/material/Checkbox';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import { API_BASE_URL } from '../config';
 import { useLocation } from 'react-router-dom';
 
@@ -74,21 +76,58 @@ function ExtremeConfigurations() {
       
       // Process attributes to populate cards
       let currentCardIndex = -1;
+      const processedInterventions = new Set(); // Track which interventions we've processed
+      const processedTableData = new Set(); // Track which table data we've already added
+      
       attributes.forEach(attr => {
         if (attr.name.startsWith('--- ') && attr.name.endsWith(' ---')) {
-          // This is a category separator, find the matching card
+          // This is a category separator
           const categoryName = attr.name.replace('--- ', '').replace(' ---', '');
-          const cardIndex = newCards.findIndex(card => card.title === categoryName);
-          if (cardIndex !== -1) {
-            currentCardIndex = cardIndex;
-            newCards[cardIndex].expanded = true;
+          
+          // Check if this is an intervention-specific category (e.g., "Population - Supraorbital/Eyebrow")
+          if (categoryName.includes(' - ')) {
+            const [baseCategory, intervention] = categoryName.split(' - ');
+            const cardIndex = newCards.findIndex(card => card.title === baseCategory);
+            if (cardIndex !== -1) {
+              currentCardIndex = cardIndex;
+              newCards[cardIndex].expanded = true;
+              
+              // Mark this intervention as selected
+              if (newCards[cardIndex].interventions && newCards[cardIndex].interventions[intervention] !== undefined) {
+                newCards[cardIndex].interventions[intervention] = true;
+                processedInterventions.add(intervention);
+              }
+            }
+          } else {
+            // Regular category (e.g., "Population")
+            const cardIndex = newCards.findIndex(card => card.title === categoryName);
+            if (cardIndex !== -1) {
+              currentCardIndex = cardIndex;
+              newCards[cardIndex].expanded = true;
+            }
           }
         } else if (currentCardIndex !== -1 && attr.name && attr.query) {
-          // This is a field, add it to the current card
-          newCards[currentCardIndex].tableData.push({
-            field: attr.name,
-            description: attr.query
-          });
+          // Create a unique key for this table data to avoid duplicates
+          const tableDataKey = `${currentCardIndex}-${attr.name}`;
+          
+          // Only add table data if we haven't processed it before
+          if (!processedTableData.has(tableDataKey)) {
+            // Clean up intervention filters from the description
+            let cleanDescription = attr.query;
+            if (newCards[currentCardIndex].title === 'Population' && newCards[currentCardIndex].interventions) {
+              const interventionMatch = attr.query.match(/\[Filter for patients with interventions: (.+?)\]/);
+              if (interventionMatch) {
+                cleanDescription = attr.query.replace(/\[Filter for patients with interventions: .+?\]/, '').trim();
+              }
+            }
+            
+            newCards[currentCardIndex].tableData.push({
+              field: attr.name,
+              description: cleanDescription
+            });
+            
+            processedTableData.add(tableDataKey);
+          }
         }
       });
       
@@ -207,7 +246,14 @@ function ExtremeConfigurations() {
       description: 'Details about the population of the study.',
       expanded: false,
       selectedTemplates: [],
-      tableData: []
+      tableData: [],
+      interventions: {
+        'Supraorbital/Eyebrow (SOA)': false,
+        'Endoscopic Transorbital approach (TTA)': false,
+        'Transnasal': false,
+        'Transcranial': false,
+        'Combined Approach': false
+      }
     },
     {
       id: 3,
@@ -277,12 +323,39 @@ function ExtremeConfigurations() {
           ? { 
               ...card, 
               selectedTemplates: card.selectedTemplates.filter(t => t.id !== templateId),
-              tableData: card.tableData.filter(item => 
-                !card.selectedTemplates.find(t => t.id === templateId)?.template.some(field => field.field === item.field)
-              )
+              tableData: card.tableData.filter(item => {
+                // Find the template being removed
+                const templateToRemove = card.selectedTemplates.find(t => t.id === templateId);
+                if (!templateToRemove) return true;
+                
+                // Check if this item belongs to the template being removed
+                const templateData = templateToRemove.template || templateToRemove.template_data || [];
+                return !templateData.some(field => field.field === item.field);
+              })
             }
           : card
       );
+      
+      // Check if we need to clear favorite status after removing template
+      const updatedCard = updatedCards.find(c => c.id === cardId);
+      const originalFavoriteData = favoriteTemplates.get(cardId);
+      
+      if (selectedFavorites.has(cardId) && originalFavoriteData) {
+        const isMatching = JSON.stringify(updatedCard.tableData) === JSON.stringify(originalFavoriteData);
+        if (!isMatching) {
+          // Clear favorite status if data doesn't match
+          setSelectedFavorites(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(cardId);
+            return newSet;
+          });
+          setFavoriteTemplates(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(cardId);
+            return newMap;
+          });
+        }
+      }
       
       return updatedCards;
     });
@@ -327,6 +400,24 @@ function ExtremeConfigurations() {
           ? { 
               ...card, 
               tableData: card.tableData.filter((_, i) => i !== index)
+            }
+          : card
+      );
+      
+      return updatedCards;
+    });
+  };
+
+  const handleInterventionChange = (cardId, intervention, checked) => {
+    setCards(prevCards => {
+      const updatedCards = prevCards.map(card => 
+        card.id === cardId 
+          ? { 
+              ...card, 
+              interventions: {
+                ...card.interventions,
+                [intervention]: checked
+              }
             }
           : card
       );
@@ -474,19 +565,44 @@ function ExtremeConfigurations() {
       
       cards.forEach(card => {
         if (card.tableData.length > 0) {
-          // Always add a separator for each category (including the first one)
-          attributes.push({
-            name: `--- ${card.title} ---`,
-            query: `Category: ${card.title}`
-          });
+          // Check if this card has interventions and if any are selected
+          const selectedInterventions = card.interventions ? 
+            Object.entries(card.interventions)
+              .filter(([_, checked]) => checked)
+              .map(([intervention, _]) => intervention) : [];
           
-          // Add each field from the card
-          card.tableData.forEach(row => {
-            attributes.push({
-              name: row.field,
-              query: row.description
+          if (selectedInterventions.length > 0) {
+            // Create separate categories for each selected intervention
+            selectedInterventions.forEach(intervention => {
+              // Add category separator for this intervention
+              attributes.push({
+                name: `--- ${card.title} - ${intervention} ---`,
+                query: `Category: ${card.title} - ${intervention}`
+              });
+              
+              // Add each field from the card with intervention-specific query
+              card.tableData.forEach(row => {
+                attributes.push({
+                  name: row.field,
+                  query: `${row.description} [Filter for patients with interventions: ${intervention}]`
+                });
+              });
             });
-          });
+          } else {
+            // No interventions selected, create regular category
+            attributes.push({
+              name: `--- ${card.title} ---`,
+              query: `Category: ${card.title}`
+            });
+            
+            // Add each field from the card
+            card.tableData.forEach(row => {
+              attributes.push({
+                name: row.field,
+                query: row.description
+              });
+            });
+          }
         }
       });
 
@@ -655,6 +771,41 @@ function ExtremeConfigurations() {
                                  {/* Expanded View */}
                  {card.expanded && (
                    <Box sx={{ mt: 2 }}>
+                     {/* Intervention Checkboxes - Only for Population card */}
+                     {card.title === 'Population' && card.interventions && (
+                       <Box sx={{ mb: 3, p: 2, border: '1px solid #e0e0e0', borderRadius: 1, backgroundColor: '#f9f9f9' }}>
+                         <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
+                           🔬 Medical Interventions (Select to filter data extraction)
+                         </Typography>
+                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+                           {Object.entries(card.interventions).map(([intervention, checked]) => (
+                             <FormControlLabel
+                               key={intervention}
+                               control={
+                                 <Checkbox
+                                   checked={checked}
+                                   onChange={(e) => handleInterventionChange(card.id, intervention, e.target.checked)}
+                                   color="primary"
+                                 />
+                               }
+                               label={intervention}
+                               sx={{ 
+                                 '& .MuiFormControlLabel-label': { 
+                                   fontSize: '0.875rem',
+                                   fontWeight: checked ? 600 : 400
+                                 }
+                               }}
+                             />
+                           ))}
+                         </Box>
+                         {Object.values(card.interventions).some(checked => checked) && (
+                           <Typography variant="caption" sx={{ mt: 1, display: 'block', color: 'text.secondary', fontStyle: 'italic' }}>
+                             Selected interventions will be included in the extraction query to filter for specific patient groups.
+                           </Typography>
+                         )}
+                       </Box>
+                     )}
+                     
                      {/* Selected Templates Display */}
                      {card.selectedTemplates.length > 0 && (
                        <Box sx={{ mb: 2 }}>
@@ -662,29 +813,38 @@ function ExtremeConfigurations() {
                            Selected Templates:
                          </Typography>
                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-                           {card.selectedTemplates.map((template) => (
-                             <Box
-                               key={template.id}
-                               sx={{
-                                 display: 'flex',
-                                 alignItems: 'center',
-                                 gap: 1,
-                                 p: 1,
-                                 border: '1px solid #e0e0e0',
-                                 borderRadius: 1,
-                                 backgroundColor: '#f5f5f5'
-                               }}
-                             >
-                               <Typography variant="body2">{template.name}</Typography>
-                               <IconButton
-                                 size="small"
-                                 onClick={() => handleRemoveTemplate(card.id, template.id)}
-                                 sx={{ p: 0.5 }}
+                           {card.selectedTemplates.map((template) => {
+                             // Check if this template is a user favorite and if the current data matches it
+                             const isUserFavorite = template.template_data !== undefined;
+                             const isMatchingFavorite = isUserFavorite && selectedFavorites.has(card.id) && isTableDataMatchingFavorite(card.id);
+                             
+                             return (
+                               <Box
+                                 key={template.id}
+                                 sx={{
+                                   display: 'flex',
+                                   alignItems: 'center',
+                                   gap: 1,
+                                   p: 1,
+                                   border: '1px solid #e0e0e0',
+                                   borderRadius: 1,
+                                   backgroundColor: isUserFavorite && isMatchingFavorite ? '#e8f5e8' : '#f5f5f5'
+                                 }}
                                >
-                                 ×
-                               </IconButton>
-                             </Box>
-                           ))}
+                                 <Typography variant="body2">{template.name}</Typography>
+                                 {/* Only show X button if it's not a matching favorite */}
+                                 { (
+                                   <IconButton
+                                     size="small"
+                                     onClick={() => handleRemoveTemplate(card.id, template.id)}
+                                     sx={{ p: 0.5 }}
+                                   >
+                                     ×
+                                   </IconButton>
+                                 )}
+                               </Box>
+                             );
+                           })}
                          </Box>
                        </Box>
                      )}
