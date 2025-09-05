@@ -271,7 +271,7 @@ async def markdown_to_json(request: Request):
             logger.info("Returning raw content as fallback")
             json_result = cleaned_content  # For debugging if the LLM returns non-JSON
 
-        logger.info("=== Returning response ===")
+        logger.info("=== Returning responses ===")
         return {"json": json_result}
 
     except Exception as e:
